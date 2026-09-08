@@ -21,6 +21,27 @@ import {
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
+/**
+ * Resolve the Python interpreter used to run the extraction scripts.
+ *
+ * Order: QMD_PYTHON env var > platform default (`python` on Windows, `python3` elsewhere).
+ * QMD_PYTHON exists because Windows rarely ships a `python3` executable, and the
+ * interpreter found on PATH may predate the required 3.10.
+ */
+let cachedPythonCommand: string | null = null;
+
+function resolvePythonCommand(): string {
+  if (cachedPythonCommand) return cachedPythonCommand;
+  const fromEnv = process.env.QMD_PYTHON?.trim();
+  cachedPythonCommand = fromEnv || (process.platform === "win32" ? "python" : "python3");
+  return cachedPythonCommand;
+}
+
+/** Reset the cached interpreter (used when QMD_PYTHON changes at runtime). */
+export function resetPythonCommandCache(): void {
+  cachedPythonCommand = null;
+}
+
 const MAX_BUFFER = 100 * 1024 * 1024; // 100 MiB
 
 /**
@@ -38,8 +59,9 @@ export function callPythonScript(
   env?: Record<string, string>
 ): Promise<unknown> {
   const scriptPath = join(__dirname, "python", scriptName);
+  const pythonCommand = resolvePythonCommand();
   return new Promise((resolve, reject) => {
-    const child = spawn("python3", [scriptPath, ...args], {
+    const child = spawn(pythonCommand, [scriptPath, ...args], {
       env: env ? { ...process.env, ...env } : undefined,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -69,7 +91,10 @@ export function callPythonScript(
     });
 
     child.on("error", (err) => {
-      reject(new Error(`Failed to spawn python3: ${err.message}`));
+      reject(new Error(
+        `Failed to spawn Python interpreter "${pythonCommand}": ${err.message}\n` +
+        `Set QMD_PYTHON to a Python 3.10+ executable if it is not on PATH.`
+      ));
     });
 
     child.on("close", (code) => {

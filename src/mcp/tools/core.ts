@@ -129,9 +129,12 @@ Advanced (explicit typed sub-queries):
         intent: z.string().optional().describe(
           "Background context to disambiguate the query. Example: query='performance', intent='web page load times and Core Web Vitals'. Does not search on its own."
         ),
+        skipRerank: z.boolean().optional().default(true).describe(
+          "Skip the LLM reranking stage (default: true). Reranking runs a cross-encoder over each candidate chunk and is very slow on CPU-only machines. Set false only when you need maximum ranking precision and can afford the wait."
+        ),
       },
     },
-    async ({ query, searches, limit, minScore, collections, intent }) => {
+    async ({ query, searches, limit, minScore, collections, intent, skipRerank }) => {
       if (!query && (!searches || searches.length === 0)) {
         return {
           content: [{ type: "text", text: "Either 'query' or 'searches' must be provided." }],
@@ -147,11 +150,12 @@ Advanced (explicit typed sub-queries):
 
       try {
         const effectiveCollections = collections ?? defaultCollectionNames;
-        const searchOpts: { query?: string; queries?: ExpandedQuery[]; collections?: string[]; limit?: number; minScore?: number; intent?: string } = {
+        const searchOpts: { query?: string; queries?: ExpandedQuery[]; collections?: string[]; limit?: number; minScore?: number; intent?: string; rerank?: boolean } = {
           collections: effectiveCollections.length > 0 ? effectiveCollections : undefined,
           limit,
           minScore,
           intent,
+          rerank: skipRerank ? false : undefined,
         };
 
         if (query) {

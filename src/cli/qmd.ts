@@ -481,9 +481,12 @@ async function showStatus(): Promise<void> {
       if (device.vram) {
         console.log(`  VRAM:     ${formatBytes(device.vram.free)} free / ${formatBytes(device.vram.total)} total`);
       }
+    } else if (device.gpuRequested) {
+      console.log(`  GPU:      ${c.yellow}none${c.reset} (QMD_GPU requested but unavailable)`);
+      console.log(`  ${c.dim}Tip: Install CUDA/Vulkan/Metal support, or unset QMD_GPU to use CPU.${c.reset}`);
     } else {
-      console.log(`  GPU:      ${c.yellow}none${c.reset} (running on CPU — models will be slow)`);
-      console.log(`  ${c.dim}Tip: Install CUDA, Vulkan, or Metal support for GPU acceleration.${c.reset}`);
+      console.log(`  GPU:      ${c.dim}disabled${c.reset} (CPU inference — default for these small models)`);
+      console.log(`  ${c.dim}Tip: Set QMD_GPU=auto to try GPU acceleration.${c.reset}`);
     }
     console.log(`  CPU:      ${device.cpuCores} math cores`);
   } catch {
@@ -1698,6 +1701,7 @@ type OutputOptions = {
   format: OutputFormat;
   full: boolean;
   limit: number;
+  chunks: number;           // max chunks per document (1 = best chunk only)
   minScore: number;
   all?: boolean;
   collection?: string | string[];  // Filter by collection name(s)
@@ -1706,6 +1710,7 @@ type OutputOptions = {
   context?: string;      // Optional context for query expansion
   candidateLimit?: number;  // Max candidates to rerank (default: 40)
   intent?: string;       // Domain intent for disambiguation
+  rerank?: boolean;      // Enable LLM reranking (default: off — very slow on CPU-only machines)
 };
 
 // Highlight query terms in text (skip short words < 3 chars)
@@ -2109,6 +2114,7 @@ async function querySearch(query: string, opts: OutputOptions, _embedModel: stri
         minScore: opts.minScore || 0,
         candidateLimit: opts.candidateLimit,
         explain: !!opts.explain,
+        skipRerank: opts.rerank !== true,
         intent,
         hooks: {
           onEmbedStart: (count) => {
@@ -2135,6 +2141,7 @@ async function querySearch(query: string, opts: OutputOptions, _embedModel: stri
         minScore: opts.minScore || 0,
         candidateLimit: opts.candidateLimit,
         explain: !!opts.explain,
+        skipRerank: opts.rerank !== true,
         intent,
         hooks: {
           onStrongSignal: (score) => {
@@ -2188,17 +2195,37 @@ async function querySearch(query: string, opts: OutputOptions, _embedModel: stri
       : query;
 
     // Map to CLI output format — use bestChunk for snippet display
-    outputResults(results.map(r => ({
-      file: r.file,
-      displayPath: r.displayPath,
-      title: r.title,
-      body: r.bestChunk,
-      chunkPos: r.bestChunkPos,
-      score: r.score,
-      context: r.context,
-      docid: r.docid,
-      explain: r.explain,
-    })), displayQuery, { ...opts, limit: results.length });
+    const rows: OutputRow[] = [];
+    for (const r of results) {
+      if (opts.chunks > 1 && r.chunks && r.chunks.length > 1) {
+        for (const ch of r.chunks.slice(0, opts.chunks)) {
+          rows.push({
+            file: r.file,
+            displayPath: r.displayPath,
+            title: r.title,
+            body: ch.text,
+            chunkPos: ch.pos,
+            score: r.score,
+            context: r.context,
+            docid: r.docid,
+            explain: r.explain,
+          });
+        }
+      } else {
+        rows.push({
+          file: r.file,
+          displayPath: r.displayPath,
+          title: r.title,
+          body: r.bestChunk,
+          chunkPos: r.bestChunkPos,
+          score: r.score,
+          context: r.context,
+          docid: r.docid,
+          explain: r.explain,
+        });
+      }
+    }
+    outputResults(rows, displayQuery, opts);
   }, { maxDuration: 10 * 60 * 1000, name: 'querySearch' });
 }
 
@@ -2247,7 +2274,10 @@ function parseCLI() {
       "line-numbers": { type: "boolean" },  // add line numbers to output
       // Query options
       "candidate-limit": { type: "string", short: "C" },
+      chunks: { type: "string", short: "k" },  // max chunks per document for query output
       intent: { type: "string" },
+      rerank: { type: "boolean" },
+      "no-rerank": { type: "boolean" },
       // Wiki options
       "stale-days": { type: "string" },
       wiki: { type: "string" },
@@ -2257,6 +2287,7 @@ function parseCLI() {
       http: { type: "boolean" },
       daemon: { type: "boolean" },
       port: { type: "string" },
+      host: { type: "string" },
     },
     allowPositionals: true,
     strict: false, // Allow unknown options to pass through
@@ -2288,11 +2319,13 @@ function parseCLI() {
     limit: isAll ? 100000 : (values.n != null ? (Number.isNaN(parseInt(String(values.n), 10)) ? defaultLimit : parseInt(String(values.n), 10)) : defaultLimit),
     minScore: values["min-score"] ? parseFloat(String(values["min-score"])) || 0 : 0,
     all: isAll,
+    chunks: values.chunks ? Math.max(1, parseInt(String(values.chunks), 10) || 1) : 1,
     collection: values.collection as string[] | undefined,
     lineNumbers: !!values["line-numbers"],
     candidateLimit: values["candidate-limit"] ? parseInt(String(values["candidate-limit"]), 10) : undefined,
     explain: !!values.explain,
     intent: values.intent as string | undefined,
+    rerank: values.rerank === true ? true : undefined,
   };
 
   return {
@@ -2520,6 +2553,8 @@ function showHelp(): void {
   console.log("  --min-score <num>          - Minimum similarity score");
   console.log("  --full                     - Output full document instead of snippet");
   console.log("  -C, --candidate-limit <n>  - Max candidates to rerank (default 40, lower = faster)");
+  console.log("  --no-rerank                - Skip LLM reranking (this is the default — much faster on CPU-only machines)");
+  console.log("  --rerank                   - Enable LLM reranking for higher precision (slow on CPU)");
   console.log("  --line-numbers             - Include line numbers in output");
   console.log("  --explain                  - Include retrieval score traces (query --json/CLI)");
   console.log("  --files | --json | --csv | --md | --xml  - Output format");
@@ -2931,6 +2966,15 @@ if (isMain) {
       if (cli.values.http) {
         const port = Number(cli.values.port) || 8181;
 
+        // Resolve and validate --host. parseArgs yields boolean `true` when
+        // --host is given without a value; error out instead of binding "true".
+        const rawHost = cli.values.host;
+        if (rawHost === true) {
+          console.error("Error: --host requires a value, e.g. --host 0.0.0.0 or --host ::");
+          process.exit(1);
+        }
+        const hostArg = typeof rawHost === "string" ? rawHost : undefined;
+
         if (cli.values.daemon) {
           // Guard: check if already running
           if (existsSync(pidPath)) {
@@ -2950,6 +2994,7 @@ if (isMain) {
           const selfPath = fileURLToPath(import.meta.url);
           const indexFlag = (cli.values.index as string | undefined);
           const baseArgs = ["mcp", "--http", "--port", String(port)];
+          if (hostArg) baseArgs.push("--host", hostArg);
           if (indexFlag) baseArgs.unshift("--index", indexFlag);
           const spawnArgs = selfPath.endsWith(".ts")
             ? ["--import", pathJoin(dirname(selfPath), "..", "..", "node_modules", "tsx", "dist", "esm", "index.mjs"), selfPath, ...baseArgs]
@@ -2962,7 +3007,7 @@ if (isMain) {
           closeSync(logFd); // parent's copy; child inherited the fd
 
           writeFileSync(pidPath, String(child.pid));
-          console.log(`Started on http://localhost:${port}/mcp (PID ${child.pid})`);
+          console.log(`Started on http://${hostArg || "127.0.0.1"}:${port}/mcp (PID ${child.pid})`);
           console.log(`Logs: ${logPath}`);
           process.exit(0);
         }
@@ -2973,7 +3018,7 @@ if (isMain) {
         process.removeAllListeners("SIGINT");
         const { startMcpHttpServer } = await import("../mcp/server.js");
         try {
-          await startMcpHttpServer(port, { dbPath: getDbPath() });
+          await startMcpHttpServer(port, { dbPath: getDbPath(), host: hostArg });
         } catch (e: any) {
           if (e?.code === "EADDRINUSE") {
             console.error(`Port ${port} already in use. Try a different port with --port.`);

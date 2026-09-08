@@ -87,6 +87,7 @@ export interface HybridQueryResult {
   score: number;            // blended score (full precision)
   context: string | null;   // user-set context
   docid: string;            // content hash prefix (6 chars)
+  chunks?: { text: string; pos: number; score: number }[]; // all chunks in doc, for multi-chunk output
   explain?: HybridQueryExplain;
 }
 
@@ -141,7 +142,7 @@ export interface StructuredSearchOptions {
 // Shared scoring, ranking, and dedup pipeline
 // =============================================================================
 
-type ChunkMap = Map<string, { chunks: { text: string; pos: number }[]; bestIdx: number }>;
+type ChunkMap = Map<string, { chunks: { text: string; pos: number; score: number }[]; bestIdx: number }>;
 
 interface ScoringContext {
   store: Store;
@@ -209,6 +210,10 @@ function buildResult(
     ? buildExplainData(trace, rrfRank, rrfScore, rrfWeight, rerankScore, blendedScore)
     : undefined;
 
+  const allChunks = chunkInfo?.chunks
+    ? [...chunkInfo.chunks].sort((a, b) => b.score - a.score)
+    : [];
+
   return {
     file,
     displayPath,
@@ -220,6 +225,7 @@ function buildResult(
     context: ctx.store.getContextForFile(file),
     docid: ctx.docidMap.get(file) || "",
     ...(explainData ? { explain: explainData } : {}),
+    ...(allChunks.length > 0 ? { chunks: allChunks } : {}),
   };
 }
 
@@ -293,18 +299,22 @@ function chunkAndSelectBest(
 ): ChunkMap {
   const docChunkMap: ChunkMap = new Map();
   for (const cand of candidates) {
-    const chunks = chunkDocument(cand.body);
-    if (chunks.length === 0) continue;
+    const rawChunks = chunkDocument(cand.body);
+    if (rawChunks.length === 0) continue;
 
-    let bestIdx = 0;
-    let bestScore = -1;
-    for (let i = 0; i < chunks.length; i++) {
-      const chunkLower = chunks[i]!.text.toLowerCase();
+    const chunks = rawChunks.map((c) => {
+      const chunkLower = c.text.toLowerCase();
       let score = queryTerms.reduce((acc, term) => acc + (chunkLower.includes(term) ? 1 : 0), 0);
       for (const term of intentTerms) {
         if (chunkLower.includes(term)) score += INTENT_WEIGHT_CHUNK;
       }
-      if (score > bestScore) { bestScore = score; bestIdx = i; }
+      return { text: c.text, pos: c.pos, score };
+    });
+
+    let bestIdx = 0;
+    let bestScore = -1;
+    for (let i = 0; i < chunks.length; i++) {
+      if (chunks[i]!.score > bestScore) { bestScore = chunks[i]!.score; bestIdx = i; }
     }
 
     docChunkMap.set(cand.file, { chunks, bestIdx });

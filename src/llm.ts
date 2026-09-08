@@ -14,7 +14,7 @@ import {
   type LlamaEmbeddingContext,
   type Token as LlamaToken,
 } from "node-llama-cpp";
-import { homedir } from "os";
+import { availableParallelism, homedir } from "os";
 import { join } from "path";
 import { existsSync, mkdirSync, statSync, unlinkSync, readdirSync, readFileSync, writeFileSync } from "fs";
 
@@ -236,13 +236,22 @@ function parseHfUri(model: string): HfRef | null {
 
 async function getRemoteEtag(ref: HfRef): Promise<string | null> {
   const url = `https://huggingface.co/${ref.repo}/resolve/main/${ref.file}`;
+  // IMPORTANT: HuggingFace is often unreachable (offline / geo-restricted). A
+  // bare fetch() can hang for a very long time waiting on the network, which
+  // would block every embed/query that pre-checks the remote model etag. Guard
+  // with a hard timeout so we fall back to the locally cached model instead.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const resp = await fetch(url, { method: "HEAD" });
+    const resp = await fetch(url, { method: "HEAD", signal: controller.signal });
     if (!resp.ok) return null;
     const etag = resp.headers.get("etag");
     return etag || null;
   } catch {
+    // Network unreachable / timeout / offline — treat as "no remote info".
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -273,8 +282,14 @@ export async function pullModels(
       const localEtag = existsSync(etagPath)
         ? readFileSync(etagPath, "utf-8").trim()
         : null;
-      const shouldRefresh =
-        options.refresh || !remoteEtag || remoteEtag !== localEtag || cached.length === 0;
+      // Only refresh when: (a) explicitly requested AND we can confirm a newer
+      // remote version exists, or (b) no local copy is cached yet. If the remote
+      // etag can't be fetched (offline / restricted network), NEVER delete a
+      // working local model — just reuse it. This keeps embedding usable offline
+      // and avoids wiping the cache behind CodeBuddy's safe-delete shim.
+      const shouldRefresh = options.refresh
+        ? (remoteEtag ? remoteEtag !== localEtag : false)
+        : cached.length === 0;
 
       if (shouldRefresh) {
         for (const candidate of cached) {
@@ -404,6 +419,23 @@ function resolveExpandContextSize(configValue?: number): number {
   return parsed;
 }
 
+/**
+ * Resolve the llama.cpp GPU backend from the QMD_GPU env var.
+ *
+ * QMD only runs small models (0.3B–1.7B). On integrated GPUs (e.g. Intel UHD)
+ * Vulkan offloading is far slower than multi-threaded CPU inference — measured
+ * 261s vs single-digit seconds for the same rerank batch — so CPU is the default.
+ *
+ * Set QMD_GPU=auto|vulkan|cuda|metal to opt into GPU acceleration.
+ */
+function resolveGpuSetting(): false | "auto" | "vulkan" | "cuda" | "metal" {
+  const raw = process.env.QMD_GPU?.trim().toLowerCase();
+  if (!raw || raw === "false" || raw === "off" || raw === "cpu") return false;
+  if (raw === "auto" || raw === "true" || raw === "on") return "auto";
+  if (raw === "vulkan" || raw === "cuda" || raw === "metal") return raw;
+  return false;
+}
+
 export class LlamaCpp implements LLM {
   private readonly _ciMode = !!process.env.CI;
   private llama: Llama | null = null;
@@ -431,6 +463,22 @@ export class LlamaCpp implements LLM {
 
   // Track disposal state to prevent double-dispose
   private disposed = false;
+
+  /**
+   * Count of in-flight operations currently holding pooled contexts
+   * (rerank / embed). While > 0, unloadIdleResources is a no-op so a context
+   * is never disposed mid-use by the inactivity timer.
+   */
+  private activeOperations = 0;
+
+  private beginOperation(): void {
+    this.activeOperations++;
+    this.touchActivity();
+  }
+
+  private endOperation(): void {
+    this.activeOperations = Math.max(0, this.activeOperations - 1);
+  }
 
 
   constructor(config: LlamaCppConfig = {}) {
@@ -499,15 +547,27 @@ export class LlamaCpp implements LLM {
       this.inactivityTimer = null;
     }
 
-    // Dispose contexts first
-    for (const ctx of this.embedContexts) {
-      await ctx.dispose();
+    // Never dispose contexts while an operation is actively using them —
+    // that would hand a mid-dispose context to a concurrent rerank/embed
+    // and throw "Object is disposed".
+    if (this.activeOperations > 0) {
+      return;
     }
+
+    // Swap out references BEFORE disposing, so a concurrent ensureRerankContexts()
+    // sees an empty array and rebuilds fresh contexts instead of reusing ones
+    // that are being disposed on another tick.
+    const embedContexts = this.embedContexts;
+    const rerankContexts = this.rerankContexts;
     this.embedContexts = [];
-    for (const ctx of this.rerankContexts) {
+    this.rerankContexts = [];
+
+    for (const ctx of embedContexts) {
       await ctx.dispose();
     }
-    this.rerankContexts = [];
+    for (const ctx of rerankContexts) {
+      await ctx.dispose();
+    }
 
     // Optionally dispose models too (opt-in)
     if (this.disposeModelsOnInactivity) {
@@ -546,20 +606,41 @@ export class LlamaCpp implements LLM {
    */
   private async ensureLlama(): Promise<Llama> {
     if (!this.llama) {
+      const gpu = resolveGpuSetting();
       const llama = await getLlama({
         // attempt to build
         build: "autoAttempt",
-        logLevel: LlamaLogLevel.error
+        logLevel: LlamaLogLevel.error,
+        gpu
       });
 
-      if (llama.gpu === false) {
+      // Only warn when GPU was requested but unavailable — running on CPU by
+      // choice is the default and is not an error condition.
+      if (gpu !== false && llama.gpu === false) {
         process.stderr.write(
-          "QMD Warning: no GPU acceleration, running on CPU (slow). Run 'qmd status' for details.\n"
+          "QMD Warning: GPU requested but unavailable, running on CPU. Run 'qmd status' for details.\n"
         );
       }
       this.llama = llama;
     }
     return this.llama;
+  }
+
+  /**
+   * Number of CPU math cores usable for inference.
+   *
+   * node-llama-cpp reports 0 math cores on some Windows/virtualized setups,
+   * which would silently degrade inference to a single thread. Fall back to the
+   * OS-reported parallelism in that case.
+   */
+  private async cpuCoreCount(): Promise<number> {
+    const llama = await this.ensureLlama();
+    if (llama.cpuMathCores > 0) return llama.cpuMathCores;
+    try {
+      return availableParallelism();
+    } catch {
+      return 4;
+    }
   }
 
   /**
@@ -644,7 +725,7 @@ export class LlamaCpp implements LLM {
     }
 
     // CPU: split cores across contexts. At least 4 threads per context.
-    const cores = llama.cpuMathCores || 4;
+    const cores = await this.cpuCoreCount();
     const maxContexts = Math.floor(cores / 4);
     return Math.max(1, Math.min(4, maxContexts));
   }
@@ -656,7 +737,7 @@ export class LlamaCpp implements LLM {
   private async threadsPerContext(parallelism: number): Promise<number> {
     const llama = await this.ensureLlama();
     if (llama.gpu) return 0; // GPU: let the library decide
-    const cores = llama.cpuMathCores || 4;
+    const cores = await this.cpuCoreCount();
     return Math.max(1, Math.floor(cores / parallelism));
   }
 
@@ -854,10 +935,11 @@ export class LlamaCpp implements LLM {
   // ==========================================================================
 
   async embed(text: string, options: EmbedOptions = {}): Promise<EmbeddingResult | null> {
-    // Ping activity at start to keep models alive during this operation
-    this.touchActivity();
-
+    this.beginOperation();
     try {
+      // Ping activity at start to keep models alive during this operation
+      this.touchActivity();
+
       const context = await this.ensureEmbedContext();
       const embedding = await context.getEmbeddingFor(text);
 
@@ -868,6 +950,8 @@ export class LlamaCpp implements LLM {
     } catch (error) {
       console.error("Embedding error:", error);
       return null;
+    } finally {
+      this.endOperation();
     }
   }
 
@@ -877,10 +961,12 @@ export class LlamaCpp implements LLM {
    */
   async embedBatch(texts: string[]): Promise<(EmbeddingResult | null)[]> {
     if (this._ciMode) throw new Error("LLM operations are disabled in CI (set CI=true)");
-    // Ping activity at start to keep models alive during this operation
-    this.touchActivity();
+    this.beginOperation();
+    try {
+      // Ping activity at start to keep models alive during this operation
+      this.touchActivity();
 
-    if (texts.length === 0) return [];
+      if (texts.length === 0) return [];
 
     try {
       const contexts = await this.ensureEmbedContexts();
@@ -932,7 +1018,10 @@ export class LlamaCpp implements LLM {
       console.error("Batch embedding error:", error);
       return texts.map(() => null);
     }
+  } finally {
+      this.endOperation();
   }
+}
 
   async generate(prompt: string, options: GenerateOptions = {}): Promise<GenerateResult | null> {
     if (this._ciMode) throw new Error("LLM operations are disabled in CI (set CI=true)");
@@ -999,20 +1088,11 @@ export class LlamaCpp implements LLM {
     // Ping activity at start to keep models alive during this operation
     this.touchActivity();
 
-    const llama = await this.ensureLlama();
+    await this.ensureLlama();
     await this.ensureGenerateModel();
 
     const includeLexical = options.includeLexical ?? true;
     const context = options.context;
-
-    const grammar = await llama.createGrammar({
-      grammar: `
-        root ::= line+
-        line ::= type ": " content "\\n"
-        type ::= "lex" | "vec" | "hyde"
-        content ::= [^\\n]+
-      `
-    });
 
     const intent = options.intent;
     const prompt = intent
@@ -1030,9 +1110,12 @@ export class LlamaCpp implements LLM {
       // Qwen3 recommended settings for non-thinking mode:
       // temp=0.7, topP=0.8, topK=20, presence_penalty for repetition
       // DO NOT use greedy decoding (temp=0) - causes infinite loops
+      // NOTE: grammar-constrained decoding hangs on node-llama-cpp 3.x (Windows) when
+      // combined with the qmd-query-expansion tokenizer (the </s> token triggers an
+      // infinite loop in the GBNF sampler). Use free-form generation and rely on the
+      // robust line parser below (which already handles loose/messy output).
       const result = await session.prompt(prompt, {
-        grammar,
-        maxTokens: 600,
+        maxTokens: 400,
         temperature: 0.7,
         topK: 20,
         topP: 0.8,
@@ -1093,10 +1176,12 @@ export class LlamaCpp implements LLM {
     options: RerankOptions = {}
   ): Promise<RerankResult> {
     if (this._ciMode) throw new Error("LLM operations are disabled in CI (set CI=true)");
-    // Ping activity at start to keep models alive during this operation
-    this.touchActivity();
+    this.beginOperation();
+    try {
+      // Ping activity at start to keep models alive during this operation
+      this.touchActivity();
 
-    const contexts = await this.ensureRerankContexts();
+      const contexts = await this.ensureRerankContexts();
     const model = await this.ensureRerankModel();
 
     // Truncate documents that would exceed the rerank context size.
@@ -1176,10 +1261,13 @@ export class LlamaCpp implements LLM {
       }
     }
 
-    return {
-      results,
-      model: this.rerankModelUri,
-    };
+      return {
+        results,
+        model: this.rerankModelUri,
+      };
+    } finally {
+      this.endOperation();
+    }
   }
 
   /**
@@ -1192,6 +1280,7 @@ export class LlamaCpp implements LLM {
     gpuDevices: string[];
     vram?: { total: number; used: number; free: number };
     cpuCores: number;
+    gpuRequested: boolean;
   }> {
     const llama = await this.ensureLlama();
     const gpuDevices = await llama.getGpuDeviceNames();
@@ -1207,7 +1296,8 @@ export class LlamaCpp implements LLM {
       gpuOffloading: llama.supportsGpuOffloading,
       gpuDevices,
       vram,
-      cpuCores: llama.cpuMathCores,
+      cpuCores: await this.cpuCoreCount(),
+      gpuRequested: resolveGpuSetting() !== false,
     };
   }
 

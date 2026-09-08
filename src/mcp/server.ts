@@ -137,7 +137,7 @@ async function collectBody(req: IncomingMessage): Promise<string> {
 /**
  * Start MCP server over Streamable HTTP (JSON responses, no SSE).
  */
-export async function startMcpHttpServer(port: number, options?: { quiet?: boolean; dbPath?: string }): Promise<HttpServerHandle> {
+export async function startMcpHttpServer(port: number, options?: { quiet?: boolean; dbPath?: string; host?: string }): Promise<HttpServerHandle> {
   const { createStore } = await import("../index.js");
   const configPath = configExists() ? getConfigPath() : undefined;
   const store = await createStore({
@@ -174,6 +174,11 @@ export async function startMcpHttpServer(port: number, options?: { quiet?: boole
 
   const startTime = Date.now();
   const quiet = options?.quiet ?? false;
+  // Bind to the IPv4 loopback by default. Passing "localhost" to listen() lets
+  // Node resolve it to ::1 (IPv6) first, which on some systems makes the server
+  // listen on IPv6 ONLY and unreachable via 127.0.0.1. Force 127.0.0.1 unless
+  // explicitly overridden (e.g. QMD_MCP_HOST=0.0.0.0 for LAN access).
+  const host = options?.host || process.env.QMD_MCP_HOST || "127.0.0.1";
 
   // Create HTTP server
   const { createServer } = await import("node:http");
@@ -193,7 +198,16 @@ export async function startMcpHttpServer(port: number, options?: { quiet?: boole
       // REST endpoint: POST /query
       if ((pathname === "/query" || pathname === "/search") && nodeReq.method === "POST") {
         const rawBody = await collectBody(nodeReq);
-        const params = JSON.parse(rawBody);
+        let params: any;
+        try {
+          params = JSON.parse(rawBody);
+        } catch {
+          // Malformed JSON must be a 400, not an unhandled 500.
+          nodeRes.writeHead(400, { "Content-Type": "application/json" });
+          nodeRes.end(JSON.stringify({ error: "Parse error: invalid JSON body" }));
+          log(`${ts()} POST ${pathname} parse error (${Date.now() - reqStart}ms)`);
+          return;
+        }
 
         if (!params.searches || !Array.isArray(params.searches)) {
           nodeRes.writeHead(400, { "Content-Type": "application/json" });
@@ -241,7 +255,20 @@ export async function startMcpHttpServer(port: number, options?: { quiet?: boole
       // MCP endpoint: POST /mcp
       if (pathname === "/mcp" && nodeReq.method === "POST") {
         const rawBody = await collectBody(nodeReq);
-        const body = JSON.parse(rawBody);
+        let body: any;
+        try {
+          body = JSON.parse(rawBody);
+        } catch {
+          // Malformed JSON must produce a JSON-RPC parse error, not an unhandled 500.
+          nodeRes.writeHead(400, { "Content-Type": "application/json" });
+          nodeRes.end(JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32700, message: "Parse error: invalid JSON body" },
+            id: null,
+          }));
+          log(`${ts()} POST /mcp parse error (${Date.now() - reqStart}ms)`);
+          return;
+        }
         const label = describeRequest(body);
         const url = `http://localhost:${port}${pathname}`;
         const headers: Record<string, string> = {};
@@ -334,7 +361,7 @@ export async function startMcpHttpServer(port: number, options?: { quiet?: boole
 
   await new Promise<void>((resolve, reject) => {
     httpServer.on("error", reject);
-    httpServer.listen(port, "localhost", () => resolve());
+    httpServer.listen(port, host, () => resolve());
   });
 
   const actualPort = (httpServer.address() as import("net").AddressInfo).port;
@@ -362,7 +389,7 @@ export async function startMcpHttpServer(port: number, options?: { quiet?: boole
     process.exit(0);
   });
 
-  if (!quiet) log(`MinerU Document Explorer MCP server listening on http://localhost:${actualPort}/mcp`);
+  if (!quiet) log(`MinerU Document Explorer MCP server listening on http://${host}:${actualPort}/mcp`);
   return { httpServer, port: actualPort, stop };
 }
 

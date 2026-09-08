@@ -25,7 +25,7 @@
   },
   "scripts": {
     "prepare": "[ -d .git ] && ./scripts/install-hooks.sh || true",
-    "build": "node scripts/sync-embedded-skills.js && tsc -p tsconfig.build.json && rm -rf dist/backends/python && cp -r src/backends/python dist/backends/python && printf '#!/usr/bin/env node\n' | cat - dist/cli/qmd.js > dist/cli/qmd.tmp && mv dist/cli/qmd.tmp dist/cli/qmd.js && chmod +x dist/cli/qmd.js",
+    "build": "node scripts/sync-embedded-skills.js && tsc -p tsconfig.build.json && node scripts/build-dist.js",
     "test": "vitest run --reporter=verbose test/",
     "qmd": "tsx src/cli/qmd.ts",
     "update": "tsx src/cli/qmd.ts update",
@@ -48,7 +48,7 @@
     "@modelcontextprotocol/sdk": "^1.25.1",
     "better-sqlite3": "^12.4.5",
     "fast-glob": "^3.3.0",
-    "node-llama-cpp": "^3.17.1",
+    "node-llama-cpp": "^3.20.0",
     "picomatch": "^4.0.0",
     "sqlite-vec": "^0.1.7-alpha.2",
     "yaml": "^2.8.2",

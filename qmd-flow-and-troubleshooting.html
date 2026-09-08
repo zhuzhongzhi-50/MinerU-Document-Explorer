@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QMD 项目流程与排障时序图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(160deg, #0b1220 0%, #131e33 50%, #0d1526 100%);
+    color: #e2e8f0;
+    line-height: 1.7;
+    padding: 0 0 80px;
+  }
+  header {
+    padding: 48px 32px 28px;
+    text-align: center;
+    border-bottom: 1px solid rgba(148,163,184,.18);
+    background: radial-gradient(900px 320px at 50% -40%, rgba(56,189,248,.20), transparent);
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 30px;
+    letter-spacing: .5px;
+    background: linear-gradient(90deg, #38bdf8, #a78bfa 60%, #f472b6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header p { margin: 0; color: #94a3b8; font-size: 15px; }
+  main { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+    gap: 14px;
+    margin: 32px 0 8px;
+  }
+  .metric {
+    background: rgba(148,163,184,.08);
+    border: 1px solid rgba(148,163,184,.18);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+  .metric .num {
+    font-size: 26px;
+    font-weight: 700;
+    background: linear-gradient(90deg, #34d399, #38bdf8);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .metric .label { font-size: 13px; color: #94a3b8; margin-top: 4px; }
+  section { margin-top: 46px; }
+  h2 {
+    font-size: 21px;
+    margin: 0 0 6px;
+    padding-left: 12px;
+    border-left: 4px solid #38bdf8;
+  }
+  h2 span { color: #64748b; font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .lead { color: #94a3b8; font-size: 14px; margin: 0 0 18px; padding-left: 16px; }
+  .diagram {
+    background: #f8fafc;
+    border: 1px solid rgba(148,163,184,.35);
+    border-radius: 14px;
+    padding: 22px 18px;
+    overflow-x: auto;
+  }
+  .figbar { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+  .figbar .figlabel { font-size: 13px; color: #64748b; font-weight: 600; }
+  .figbar button {
+    background: rgba(56,189,248,.14); color: #0369a1;
+    border: 1px solid rgba(56,189,248,.45); border-radius: 8px;
+    padding: 5px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .figbar button:hover { background: rgba(56,189,248,.28); }
+  .toolbar {
+    display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 24px 0 4px;
+  }
+  .toolbar button {
+    background: linear-gradient(90deg, #38bdf8, #818cf8);
+    color: #0b1220; border: none; border-radius: 10px;
+    padding: 9px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  }
+  .toolbar button.ghost {
+    background: rgba(148,163,184,.16); color: #cbd5e1;
+    border: 1px solid rgba(148,163,184,.32); font-weight: 500;
+  }
+  @page { size: A4 portrait; margin: 14mm; }
+  @media print {
+    html, body { background: #fff !important; }
+    body { color: #111 !important; padding: 0; }
+    header { background: none !important; border-bottom: 1px solid #bbb; }
+    h1 { color: #111 !important; -webkit-text-fill-color: #111 !important; background: none !important; }
+    header p, .lead, h2 span { color: #444 !important; }
+    h2 { color: #111 !important; border-left-color: #333; }
+    .metric { background: #f4f4f5 !important; border-color: #bbb; break-inside: avoid; }
+    .metric .num { color: #111 !important; -webkit-text-fill-color: #111 !important; background: none !important; }
+    .metric .label { color: #555 !important; }
+    .diagram { background: #fff !important; border-color: #ccc; overflow: visible; page-break-inside: avoid; }
+    ul.notes li, ul.notes b { color: #222 !important; }
+    table { background: #fff !important; font-size: 10.5pt; }
+    th { background: #e8e8e8 !important; color: #111 !important; }
+    td, th { border-color: #bbb !important; color: #222 !important; }
+    code { background: #f1f1f1 !important; color: #111 !important; }
+    .warn { background: #fffbeb !important; color: #333 !important; }
+    .warn b, .warn code { color: #111 !important; }
+    .toolbar, .figbar { display: none !important; }
+    section { break-before: page; margin-top: 0; padding-top: 4mm; }
+    .metrics { break-inside: avoid; }
+    footer { color: #666 !important; }
+  }
+  .mermaid { text-align: center; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 14px;
+    font-size: 13.5px;
+    background: rgba(148,163,184,.06);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 11px 13px;
+    text-align: left;
+    border-bottom: 1px solid rgba(148,163,184,.14);
+    vertical-align: top;
+  }
+  th { background: rgba(56,189,248,.12); color: #bae6fd; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.q { color: #fda4af; }
+  td.t { color: #cbd5e1; }
+  td.s { color: #86efac; }
+  td.r { color: #93c5fd; }
+  ul.notes { color: #cbd5e1; font-size: 14px; }
+  ul.notes li { margin: 7px 0; }
+  code {
+    background: rgba(148,163,184,.16);
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-size: 12.5px;
+    color: #bae6fd;
+  }
+  .warn {
+    border-left: 3px solid #fbbf24;
+    background: rgba(251,191,36,.09);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    margin: 12px 0;
+    font-size: 14px;
+    color: #fde68a;
+  }
+  footer { text-align: center; color: #475569; font-size: 12.5px; margin-top: 54px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MinerU Document Explorer · QMD 项目流程与排障时序图</h1>
+  <p>从「查询卡死」到「常驻加速」的完整技术脉络：问题 · 思考 · 解决 · 验证</p>
+</header>
+
+<main>
+
+  <div class="toolbar">
+    <button onclick="window.print()">打印全部（每小节单独一页 A4）</button>
+    <button class="ghost" onclick="downloadAll('svg')">下载全部矢量图 SVG</button>
+    <button class="ghost" onclick="downloadAll('png')">下载全部 PNG</button>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <div class="num">164×</div>
+      <div class="label">常驻后查询提速（205.4s → 1.2s）</div>
+    </div>
+    <div class="metric">
+      <div class="num">9min → 秒级</div>
+      <div class="label">查询扩展从卡死到恢复</div>
+    </div>
+    <div class="metric">
+      <div class="num">3.17 → 3.20</div>
+      <div class="label">node-llama-cpp 版本升级</div>
+    </div>
+    <div class="metric">
+      <div class="num">4ms</div>
+      <div class="label">CodeBuddy 端到端调用 status</div>
+    </div>
+  </div>
+
+  <section>
+    <h2>一、项目主流程：QMD 混合检索<span>一次 query 在内部发生了什么</span></h2>
+    <p class="lead">这是项目本身的核心链路。用户的一次查询会经过「多路召回 → 融合去重 → 精排」三个阶段，其中每个阶段依赖不同的本地模型。</p>
+    <div class="diagram">
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant CLI as qmd CLI 或 MCP 服务
+    participant SS as hybridQuery 编排层
+    participant DB as SQLite FTS5 与 向量库
+    participant LLM as LlamaCpp 模型层
+    participant GEN as 查询扩展模型 1.7B Q4
+    participant EMB as 嵌入模型 300M Q8
+    participant RR as 重排模型 0.6B Q8
+
+    U->>CLI: 查询 MCP 服务怎么配置
+    CLI->>SS: 进入 hybridQuery
+
+    Note over SS,DB: 第一阶段 多路召回
+    SS->>DB: BM25 关键词候选
+    DB-->>SS: 词法候选集
+    SS->>LLM: 请求查询扩展
+    LLM->>GEN: 自由生成 prompt 不再使用 grammar 约束
+    GEN-->>LLM: 输出 lex vec hyde 三类变体
+    LLM-->>SS: 查询变体列表
+    SS->>LLM: 批量嵌入四个查询
+    LLM->>EMB: 逐条计算句向量
+    EMB-->>LLM: 返回向量
+    LLM-->>SS: 四个查询向量
+    SS->>DB: 向量近邻检索
+    DB-->>SS: 语义候选集
+    SS->>SS: RRF 加权融合并去重
+
+    Note over SS,RR: 第二阶段 精排 本机最重环节
+    SS->>LLM: 请求对候选块重排
+    LLM->>RR: 拼接查询与文本块做完整前向
+    RR-->>LLM: 返回该对相关性分数
+    LLM-->>SS: 重排后的候选列表
+
+    SS->>SS: 融合位置分与重排分得到最终得分
+    SS-->>CLI: Top K 结果含 docid 分数片段
+    CLI-->>U: 输出命中文件与内容摘要
+      </pre>
+    </div>
+    <p class="lead" style="padding-left:16px;margin-top:14px">
+      注意图中「请求对候选块重排」这一步：重排模型是 cross-encoder，每个候选都必须和查询拼起来独立跑一次完整前向，无法像嵌入那样批量复用——这是整条链路在 CPU 上最昂贵的地方。
+    </p>
+  </section>
+
+  <section>
+    <h2>二、排障全程时序图<span>问题 · 思考 · 解决 · 验证</span></h2>
+    <p class="lead">从你提出的第一个问题到最后一个，每个阶段的判定依据与处置动作。图中标注：<b>问题</b>为现象，<b>思考</b>为排查推理，<b>验证</b>为实测证据，<b>解决</b>为最终处置。</p>
+    <div class="diagram">
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant A as 助手诊断
+    participant D as node-llama-cpp 与 qmd 源码
+    participant E as 运行环境 杀软 CPU 端口
+    participant DA as MCP 常驻服务
+
+    Note over U,E: 阶段 1 查询挂死定位
+    U->>A: qmd query 一直卡在 Expanding query 没有任何输出
+    Note over A: 问题 高层会话接口无响应
+    Note over A: 思考 底层 evaluate 正常说明卡点在会话封装层
+    Note over A: 思考 模型已全部缓存 排除首次下载因素
+    Note over A: 解决 选择升级上游依赖验证是否已修复
+    A->>D: 升级 node-llama-cpp 从 3.17.1 到 3.20.0
+    Note over A: 受阻 安装回滚 安全删除保护转交回收站超时
+    Note over A: 解决 关闭该保护开关后重装成功
+    D-->>A: 版本 3.20.0 且类型检查通过 无需改代码
+
+    Note over U,E: 阶段 2 发现 grammar 路径仍未修复
+    A->>D: 隔离对照纯 prompt 与带 grammar 的 prompt
+    Note over A: 验证 纯 prompt 四十一秒正常返回
+    Note over A: 验证 带 grammar 的 prompt 一百八十秒超时
+    Note over A: 思考 报错显示结束符 token 类型判定异常
+    Note over A: 归因 主责在上游采样器 诱因是模型分词器 qmd 本身无责
+    Note over A: 关键 该缺陷在旧版本同样存在 非本次升级引入
+    Note over A: 解决 查询扩展改为自由生成加容错行解析
+
+    Note over U,E: 阶段 3 杀毒软件拖慢模型加载
+    U->>A: 能不能不扫描模型文件
+    A->>E: 检查系统防护状态与已装杀软
+    Note over A: 发现 系统自带防护已停止且实时防护关闭
+    Note over A: 发现 真正扫描者是第三方杀软且它没有命令行排除工具
+    Note over A: 解决 在其界面把模型缓存目录加入信任区
+    U->>E: 手动添加信任区
+    E-->>A: 模型加载不再受扫描影响 扩展查询恢复正常
+
+    Note over U,E: 阶段 4 重排环节异常缓慢
+    U->>A: 这么慢的原因是什么
+    A->>E: 观察进程占用并复核服务端设置
+    Note over A: 观察 进程忙且负载高 属于缓慢而非死锁
+    Note over A: 思考 未开启硬件卸载 低压笔记本 CPU 内存带宽受限
+    Note over A: 思考 重排为逐对前向 候选数乘以单对成本
+    Note over A: 验证 候选降到三个仍超十分钟 固定开销才是大头
+    Note over A: 排除 不是扫描 不是 grammar 不是防护软件 不是卸载慢路径
+    Note over A: 解决 先走纯向量检索跳过精排以跑通全链路
+
+    Note over U,E: 阶段 5 性能优化
+    U->>A: 按你的思路来优化
+    A->>D: 删除已不再使用的 createGrammar 死代码
+    Note over A: 验证 类型检查通过 扩展查询回归正常
+    A->>DA: 启动常驻 HTTP 服务并保持模型在内存
+    A->>DA: 连续两次调用同一工具对比耗时
+    DA-->>A: 首次 205.4 秒 第二次 1.2 秒 提速一百六十四倍
+
+    Note over U,E: 阶段 6 接入 CodeBuddy
+    U->>A: 改成连接这个常驻服务
+    A->>E: 备份配置并确认格式与作用域优先级
+    Note over A: 验证 端口仅监听 IPv6 但 Node 解析 localhost 可用
+    Note over A: 解决 用户级配置由进程方式改为直连本地端口
+    U->>A: 重启 CodeBuddy
+    A->>DA: 通过客户端通道实际调用工具
+    DA-->>A: status 四毫秒 文档语义检索八点三秒
+      </pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>三、优化后的调用时序<span>常驻服务带来的差异</span></h2>
+    <p class="lead">改动生效后，模型只在首次调用时加载一次，之后所有请求直接复用内存中的模型。</p>
+    <div class="diagram">
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor CB as CodeBuddy
+    participant SVC as qmd 常驻服务 本地端口 8181
+    participant MEM as 常驻模型
+
+    Note over CB,MEM: 首次调用 需要把模型读进内存
+    CB->>SVC: 握手并列举可用工具
+    SVC-->>CB: 返回十五个工具
+    CB->>SVC: 调用文档语义检索
+    SVC->>MEM: 首次加载嵌入模型并嵌入文档块
+    MEM-->>SVC: 就绪
+    SVC-->>CB: 返回相关片段 耗时约 205 秒
+
+    Note over CB,MEM: 后续调用 模型已常驻
+    CB->>SVC: 调用状态查询
+    SVC-->>CB: 四毫秒返回
+    CB->>SVC: 再次调用文档语义检索
+    SVC->>MEM: 直接复用已加载的模型
+    MEM-->>SVC: 就绪
+    SVC-->>CB: 返回相关片段 约 1.2 秒
+
+    Note over MEM: 空闲超过五分钟时上下文会自动释放 下次请求透明重建 约数秒 但模型权重不清空
+      </pre>
+    </div>
+    <div class="warn">
+      这也解释了实测中出现的 8.3 秒：两次请求间隔超过空闲阈值，上下文被回收后重建所致。它依然远好于从磁盘重新加载模型的 205 秒——因为<b>权重仍在内存中</b>。
+    </div>
+  </section>
+
+  <section>
+    <h2>四、原理解析：CPU 推理为什么慢<span>为什么偏偏卡在重排</span></h2>
+    <p class="lead">同一台机器上，嵌入只要十几秒，重排却要十分钟以上。差别不在模型的绝对大小，而在<b>架构范式</b>与<b>访存模式</b>这两件事。</p>
+    <div class="diagram">
+      <pre class="mermaid">
+flowchart TB
+    subgraph R["重排路径 cross-encoder 为什么慢"]
+    direction TB
+    R1["输入 N 个候选文本块 每块约 1000 至 1800 token"]
+    R2["查询与文本块必须逐对拼接"]
+    R3["每个 pair 跑一次完整前向 中间结果无法复用"]
+    R4["每算一个 token 都要把整套 640MB 权重读一遍"]
+    R5["低压笔记本 CPU 实测内存带宽约 15GB 每秒"]
+    R6["单个 token 约 40 毫秒"]
+    R7["单个 pair 约 40 至 70 秒"]
+    R8["乘以候选数 再叠加模型与上下文创建的固定开销"]
+    R9["实测 候选降到 3 个仍然超过十分钟"]
+    R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7 --> R8 --> R9
+    end
+
+    subgraph E["对照 嵌入路径 bi-encoder 为什么快"]
+    direction TB
+    E1["模型更小 300M Q8 约 318MB 约为重排模型一半"]
+    E2["文档向量已离线预计算并写入 SQLite"]
+    E3["在线只需为查询本身算一次 且查询文本很短"]
+    E4["实测 四条查询约 13.7 秒"]
+    E1 --> E2 --> E3 --> E4
+    end
+
+    subgraph F["硬件视角 带宽才是主角"]
+    direction TB
+    F1["独立显卡 显存带宽数百 GB 每秒 高出内存一到两个数量级"]
+    F2["集成显卡 共享系统内存 带宽没提升还多了调度开销"]
+    F3["结论 本机用集显卸载反而更慢 源码注释里记录过 261 秒的案例"]
+    F1 --> F3
+    F2 --> F3
+    end
+
+    R9 --> S["四个可行的加速方向"]
+    E4 --> S
+    F3 --> S
+    S --> S1["换成更低量化 访存量减半 速度接近翻倍"]
+    S --> S2["减少候选数 线性下降 但固定开销不会消失"]
+    S --> S3["常驻服务 消除重复加载 不改善单次前向"]
+    S --> S4["换用高带宽硬件 收益最大 但依赖机器本身"]
+      </pre>
+    </div>
+
+    <p class="lead" style="padding-left:16px;margin-top:16px">把上面那条链路换成算式，实测数字就能对上了：</p>
+    <ul class="notes">
+      <li><b>第一步 · 单 token 成本</b>：15 GB/s ÷ 0.64 GB ≈ <code>23 token/秒</code>。batch=1 时算力大量闲置，瓶颈纯粹是「搬数据」而不是「算」。</li>
+      <li><b>第二步 · 单个 pair</b>：约 1200 token ÷ 23 ≈ <code>52 秒</code>。</li>
+      <li><b>第三步 · 整批</b>：52 秒 × 7 ≈ 6 分钟，再叠加加载模型与创建上下文的固定开销 → 与实测十分钟以上吻合。</li>
+      <li><b>对照 · 嵌入为什么快</b>：模型约 0.32 GB → 约 47 token/秒；但真正的关键是<b>文档向量早已离线算好存进 SQLite</b>，在线只需为查询本身算一次，而查询只有几十个 token。</li>
+    </ul>
+
+    <div class="warn">
+      一个容易踩的坑：<b>「开 GPU 」并不总是更快</b>。独立显卡的显存带宽比内存高一到两个数量级，确实会快；但集成显卡是<b>共享系统内存</b>的，带宽没有提升，反而多了数据搬运与调度开销——源码 <code>llm.ts</code> 的注释里就明确记录了这个案例：同一批重排任务，走集显卸载是 261 秒，走多线程 CPU 反而是个位数秒。所以当前默认走 CPU 是有依据的。
+    </div>
+  </section>
+
+  <section>
+    <h2>五、阶段明细对照表<span>每个问题对应的思考与处置</span></h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:14%">阶段</th>
+          <th style="width:20%">问题</th>
+          <th style="width:30%">思考与诊断依据</th>
+          <th style="width:22%">解决</th>
+          <th style="width:14%">验证结果</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1 查询挂死</td>
+          <td class="q">qmd query 卡在扩展阶段无输出</td>
+          <td class="t">底层调用正常 → 定位到会话层；模型已缓存 → 排除下载</td>
+          <td class="s">升级上游依赖到 3.20.0（并关闭安全删除开关以完成安装）</td>
+          <td class="r">类型检查零改动通过</td>
+        </tr>
+        <tr>
+          <td>2 grammar 仍挂</td>
+          <td class="q">升级后查询依然卡死</td>
+          <td class="t">对照实验：纯生成正常 / 带语法约束超时；报错指向结束符 token 类型异常</td>
+          <td class="s">查询扩展弃用语法约束，改为自由生成加容错解析</td>
+          <td class="r">成功产出三类查询变体</td>
+        </tr>
+        <tr>
+          <td>3 杀软扫描</td>
+          <td class="q">能否不扫描模型</td>
+          <td class="t">系统自带防护已停用；第三方杀软才是扫描源且无命令行排除接口</td>
+          <td class="s">在其界面把模型缓存目录加入信任区</td>
+          <td class="r">九分钟卡顿消失</td>
+        </tr>
+        <tr>
+          <td>4 重排缓慢</td>
+          <td class="q">为什么这么慢</td>
+          <td class="t">进程处于忙碌而非死锁；低压 CPU 内存带宽受限；逐对前向无法复用；候选减至三个仍超时</td>
+          <td class="s">先用纯向量检索绕开精排，保证链路可用</td>
+          <td class="r">三分钟内拿到检索结果</td>
+        </tr>
+        <tr>
+          <td>5 性能优化</td>
+          <td class="q">按建议执行优化</td>
+          <td class="t">重复加载模型是每次调用的固定成本，可用常驻进程一次性付清</td>
+          <td class="s">清理无用代码 + 启动常驻服务</td>
+          <td class="r">205.4s → 1.2s（164×）</td>
+        </tr>
+        <tr>
+          <td>6 客户端接入</td>
+          <td class="q">改成连接常驻服务</td>
+          <td class="t">端口仅监听 IPv6，需确认客户端运行时能否连通；确认无更高优先级配置覆盖</td>
+          <td class="s">用户级配置由进程方式改为直连本地端口</td>
+          <td class="r">status 4ms / 检索 8.3s</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>六、遗留事项与运维要点</h2>
+    <ul class="notes">
+      <li><b>常驻服务成为前置依赖</b>：原来的进程方式会随用随起，现在必须先有常驻服务。重启电脑或进程被杀后需要用 <code>qmd mcp --http --daemon</code> 恢复，可用 <code>qmd status</code> 查看、<code>qmd mcp stop</code> 停止。</li>
+      <li><b>仅监听 IPv6</b>：本地端口不看 IPv4，<code>127.0.0.1</code> 连不上，<code>localhost</code> 与 <code>[::1]</code> 可以。日后若用非 Node 客户端调用其 REST 接口，请显式使用 IPv6 形式。</li>
+      <li><b>空闲回收机制</b>：超过五分钟无请求会释放上下文，下次请求透明重建（数秒）。模型权重不清空，所以仍远快于冷启动。</li>
+      <li><b>重排已默认关闭</b>：命令行与 MCP 工具的完整检索现在默认跳过重排，耗时从 270 秒以上降到约 9 秒；需要最高精度时用 <code>--rerank</code> 或参数 <code>skipRerank: false</code> 手动开启。精排本身的性能优化（换更低量化、收窄上下文）只在开启它时才有意义，暂未处理。</li>
+      <li><b>全文检索对中文无效</b>：纯关键词检索对中文分词失效导致零结果，中文场景请使用向量检索或混合检索路径。</li>
+      <li><b>配置回滚</b>：原配置已备份为 <code>C:/Users/wuzhu/.codebuddy/mcp.json.bak-20260907-182828</code>。</li>
+      <li><b>命令行其实是两份，改完源码要同步</b>：直接敲 <code>qmd</code> 用的是<b>全局安装的包</b>（位于 node 安装目录下的 <code>node_modules/mineru-document-explorer</code>，它执行自己的 <code>dist/</code> 编译产物），与项目源码是两份不同代码。修改源码后必须重新构建并把 <code>dist</code> 覆盖过去才会生效；嫌麻烦就直接用 <code>npm run qmd</code>，它走源码，永远是最新。判断是否同步的办法：<code>where qmd</code> 看它是否指向项目目录。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>七、性能专题：五个瓶颈的演进时间线<span>症状 · 根因 · 修复 · 收益</span></h2>
+    <p class="lead">性能是一个分阶段暴露的问题：每解决一层瓶颈，下一层才浮现出来。下图按<b>实测发现顺序</b>串起五个瓶颈。</p>
+    <div class="diagram">
+      <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor M as 实测数据
+    participant G as GPU 后端
+    participant C as CPU 线程
+    participant AV as 安全软件
+    participant DEP as 推理依赖
+    participant LAY as 编排与精排层
+    participant DA as 常驻服务
+
+    Note over M,DA: T0 初始状态 单次查询约四分钟
+    M->>G: 观测到重排七个块耗时 261 秒 而阈值只有 60 秒
+    Note over G: 瓶颈一 集成显卡被当成加速器
+    Note over G: 核显走通用计算接口时算力远弱于多线程 CPU
+    Note over G: 修复 在初始化时关闭卸载 强制纯 CPU 推理
+    M->>C: 同期发现可用数学核心居然报零
+    Note over C: 瓶颈二 核心探测失败导致线程数被迫退化
+    Note over C: 修复 回退到系统报告的并行度 用满线程
+    G-->>M: 修复后重排从分钟级回落下来
+
+    Note over M,DA: T1 冷热差异暴露 IO 侧瓶颈
+    M->>AV: 首次冷查询 141 秒 第二次只要 11 秒
+    Note over AV: 瓶颈三 安全软件实时扫描约 2GB 的模型大文件
+    Note over AV: 修复 只对模型目录加信任 不扩大到整个缓存目录
+    AV-->>M: 冷查询降到秒级 且不再随重复调用放大
+
+    Note over M,DA: T2 依赖缺陷导致的挂起
+    M->>DEP: 会话接口带语法约束时永久卡住
+    Note over DEP: 瓶颈四 采样器在结束标记处进入死循环
+    Note over DEP: 修复 升级版本并改用自由生成加容错解析
+    DEP-->>M: 查询扩展恢复正常
+
+    Note over M,DA: T3 每次调用都在重复支付加载成本
+    M->>LAY: 精排依旧偏慢 而且每次调用都要重新加载模型
+    Note over LAY: 瓶颈五 交叉编码器逐对前向 叠加内存带宽受限
+    Note over LAY: 修复 改为常驻服务 让模型只加载一次
+    LAY->>DA: 启动常驻并把模型留在内存
+    DA-->>M: 首次 205 秒 之后 1.2 秒 提速一百六十四倍
+
+    Note over M,DA: T4 常驻之后 精排本身成了唯一瓶颈
+    M->>LAY: 完整检索仍然超过四分钟 客户端直接超时
+    Note over LAY: 瓶颈六 精排要对每个候选做一次交叉编码前向
+    Note over LAY: 关键 项目自带跳过重排的开关 但没接到命令行与工具层
+    Note over LAY: 修复 把开关接出来并默认关闭 需要时再手动开启
+    LAY-->>M: 完整检索从两百七十秒以上降到 8.9 秒
+
+    Note over M,DA: 当前复测状态
+    M->>G: 复核设备信息
+    G-->>M: GPU 已禁用 走 CPU 推理
+    M->>C: 复核核心数
+    C-->>M: 数学核心已正常报告为四
+    M->>DA: 复核常驻状态
+    DA-->>M: 运行中 空闲超时后自动回收上下文
+      </pre>
+    </div>
+
+    <div class="warn">
+      一个容易混淆的地方：图中 T0 阶段的「GPU 被当成加速器」和「核心数报零」都属于<b>已经修复的历史状态</b>。当前本机复测结果是 <code>GPU: disabled</code>、<code>CPU: 4 math cores</code>。如果在别处看到旧记录里写着 vulkan 或零核心，那是同一台机器在修复之前的样子。
+    </div>
+
+    <p class="lead" style="padding-left:16px;margin-top:16px">逐个瓶颈的处置与收益对照：</p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:11%">阶段</th>
+          <th style="width:19%">症状</th>
+          <th style="width:22%">根因</th>
+          <th style="width:24%">修复</th>
+          <th style="width:14%">收益</th>
+          <th style="width:10%">状态</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>T0 后端</td>
+          <td class="q">重排七个块耗时 261 秒，阈值 60 秒</td>
+          <td class="t">集显被自动用作加速器，其算力远弱于多线程 CPU</td>
+          <td class="s">初始化时关闭卸载，强制纯 CPU 推理</td>
+          <td class="r">分钟级回落</td>
+          <td>已修复</td>
+        </tr>
+        <tr>
+          <td>T0 线程</td>
+          <td class="q">并发能力异常低</td>
+          <td class="t">数学核心探测返回零，线程数被迫退化</td>
+          <td class="s">回退到系统报告的并行度</td>
+          <td class="r">线程恢复；现已正常报告为四</td>
+          <td>已修复</td>
+        </tr>
+        <tr>
+          <td>T1 扫描</td>
+          <td class="q">首次冷查询 141 秒，第二次仅 11 秒</td>
+          <td class="t">安全软件实时扫描约 2GB 的 GGUF 大文件</td>
+          <td class="s">仅对模型目录加信任，不扩大到整个缓存目录</td>
+          <td class="r">141 秒降到秒级</td>
+          <td>已修复</td>
+        </tr>
+        <tr>
+          <td>T2 采样</td>
+          <td class="q">查询扩展阶段永久卡住</td>
+          <td class="t">采样器在结束标记处死循环</td>
+          <td class="s">升级依赖版本，并改用自由生成加容错解析</td>
+          <td class="r">扩展恢复正常</td>
+          <td>已修复</td>
+        </tr>
+        <tr>
+          <td>T3 加载</td>
+          <td class="q">精排偏慢且每次都重新加载模型</td>
+          <td class="t">交叉编码器逐对前向，叠加内存带宽受限</td>
+          <td class="s">改为常驻服务，模型只加载一次</td>
+          <td class="r">205.4s 到 1.2s，一百六十四倍</td>
+          <td>已修复</td>
+        </tr>
+        <tr>
+          <td>T4 精排</td>
+          <td class="q">完整检索超过四分钟并超时</td>
+          <td class="t">精排对每个候选做一次交叉编码前向，CPU 上单次要几十秒</td>
+          <td class="s">把项目自带的跳过重排开关接到命令行与工具层，并默认关闭</td>
+          <td class="r">270 秒以上降到 8.9 秒</td>
+          <td>已修复</td>
+        </tr>
+        <tr>
+          <td>待办</td>
+          <td class="q">仅在手动开启精排时才需要</td>
+          <td class="t">0.6B 八位量化权重约 640MB，每 token 都要整读一遍</td>
+          <td class="s">换成更低量化，或收窄上下文数量与尺寸</td>
+          <td class="r">预计接近翻倍</td>
+          <td>未处理</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="lead" style="padding-left:16px;margin-top:18px">关于缓存目录的处置原则（T1 的修复细节）：</p>
+    <ul class="notes">
+      <li>缓存目录里其实只有三类东西：<code>models/</code> 下的大型权重文件、<code>index.sqlite</code> 系列索引库、以及 <code>mcp.log</code> 与 pid 这类运行记录。</li>
+      <li>需要加信任的只是 <code>models/</code>。<b>不要</b>把整个缓存目录加入排除列表——索引库和运行日志都很小，排除它们只会不必要地扩大安全口子。</li>
+      <li>另外一个记忆校正点：笔记里记录为系统自带防护在扫描，而在本次复测的时间段里，该机系统自带防护的服务已经是<b>停止</b>状态，实际执行扫描的是第三方安全软件。两者的处置手法完全一致（对模型目录加信任），结论不受影响。</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>生成于 2026-09-07 · MinerU Document Explorer · QMD 检索链路</footer>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: { fontSize: '15px', fontFamily: 'Microsoft YaHei, Segoe UI, sans-serif' },
+    securityLevel: 'loose',
+    sequence: { useMaxWidth: true, wrap: true }
+  });
+
+  function saveBlob(blob, filename) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+
+  function getSvg(id) {
+    var el = document.getElementById(id);
+    return el ? el.querySelector('svg') : null;
+  }
+
+  function svgString(svg) {
+    var clone = svg.cloneNode(true);
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    return new XMLSerializer().serializeToString(clone);
+  }
+
+  function dlSvg(id, name) {
+    var svg = getSvg(id);
+    if (!svg) { alert('图还没渲染好，请稍等几秒后再点'); return; }
+    var data = svgString(svg);
+    saveBlob(new Blob(['<?xml version="1.0" encoding="UTF-8"?>' + '\n' + data], { type: 'image/svg+xml;charset=utf-8' }), name + '.svg');
+  }
+
+  function dlPng(id, name) {
+    var svg = getSvg(id);
+    if (!svg) { alert('图还没渲染好，请稍等几秒后再点'); return; }
+    var scale = 3;
+    var vb = svg.viewBox && svg.viewBox.baseVal;
+    var rect = svg.getBoundingClientRect();
+    var w = Math.ceil(vb && vb.width ? vb.width : rect.width) || 1200;
+    var h = Math.ceil(vb && vb.height ? vb.height : rect.height) || 800;
+    var blob = new Blob([svgString(svg)], { type: 'image/svg+xml;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement('canvas');
+      canvas.width = w * scale;
+      canvas.height = h * scale;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(function (b) { saveBlob(b, name + '.png'); URL.revokeObjectURL(url); }, 'image/png');
+    };
+    img.onerror = function () { alert('PNG 导出失败，请改用 SVG 下载'); URL.revokeObjectURL(url); };
+    img.src = url;
+  }
+
+  function downloadAll(kind) {
+    var list = Array.prototype.slice.call(document.querySelectorAll('.mermaid'));
+    list.forEach(function (el, i) {
+      setTimeout(function () {
+        var name = 'figure-' + (i + 1);
+        if (kind === 'svg') { dlSvg(el.id, name); } else { dlPng(el.id, name); }
+      }, i * 900);
+    });
+  }
+
+  function decorate() {
+    Array.prototype.slice.call(document.querySelectorAll('.mermaid')).forEach(function (el, i) {
+      var num = i + 1;
+      el.id = 'mermaid-fig-' + num;
+      if (!el.querySelector('svg')) { return; }
+      var bar = document.createElement('div');
+      bar.className = 'figbar';
+      bar.innerHTML = '<span class="figlabel">图 ' + num + '</span>';
+      var b1 = document.createElement('button');
+      b1.textContent = '下载 SVG';
+      b1.onclick = function () { dlSvg(el.id, 'figure-' + num); };
+      var b2 = document.createElement('button');
+      b2.textContent = '下载 PNG';
+      b2.onclick = function () { dlPng(el.id, 'figure-' + num); };
+      bar.appendChild(b1);
+      bar.appendChild(b2);
+      el.parentNode.insertBefore(bar, el);
+    });
+  }
+
+  window.addEventListener('load', function () {
+    var tries = 40;
+    (function poll() {
+      var list = Array.prototype.slice.call(document.querySelectorAll('.mermaid'));
+      var ready = list.filter(function (e) { return e.querySelector('svg'); }).length;
+      if (list.length > 0 && ready === list.length) { decorate(); return; }
+      if (tries-- <= 0) { decorate(); return; }
+      setTimeout(poll, 500);
+    })();
+  });
+</script>
+
+</body>
+</html>
