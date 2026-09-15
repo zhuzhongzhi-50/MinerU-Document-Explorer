@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>重建向量索引（/api/embed）时序图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background:#f5f7fa; color:#1f2d3d; margin:0; padding:24px; }
+  .wrap { max-width: 1100px; margin: 0 auto; background:#fff; padding:24px 28px; border-radius:10px; box-shadow:0 2px 12px rgba(0,0,0,.08); }
+  h1 { font-size:22px; color:#1f3864; border-bottom:3px solid #2e5395; padding-bottom:10px; }
+  h2 { font-size:16px; color:#2e5395; margin-top:28px; }
+  .legend { background:#f0f4fa; border-left:4px solid #2e5395; padding:10px 14px; font-size:13px; line-height:1.7; border-radius:4px; }
+  .note { color:#c0392b; font-weight:bold; }
+  .ok  { color:#1e8449; font-weight:bold; }
+  .grid { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; }
+  .card { flex:1; min-width:240px; background:#fafbfc; border:1px solid #e3e8ef; border-radius:8px; padding:12px 14px; font-size:13px; line-height:1.7; }
+  .card b { color:#1f3864; }
+  footer { margin-top:24px; font-size:12px; color:#888; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>重建向量索引（/api/embed）请求时序图</h1>
+  <div class="legend">
+    <b>参与方：</b>用户(U) → 浏览器(B) → 鉴权(Auth) → EmbedHandler(H, /api/embed) → QMDStore(S, index.js) → generateEmbeddings(G, store.ts) → LLM运行时(L, node-llama-cpp) → SQLite(D, content_vectors)<br>
+    <span class="note">红色虚线</span> = 早期 Bug 点（已修复）；<span class="ok">绿色</span> = 修复后的正确路径；标注 <b>[x s]</b> 为本机实测耗时（CPU / 集显 GPU）。
+  </div>
+
+  <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant B as 浏览器(前端)
+    participant A as 鉴权中间件
+    participant H as EmbedHandler(/api/embed)
+    participant S as QMDStore(index.js)
+    participant G as generateEmbeddings(store.ts)
+    participant L as LLM运行时(node-llama-cpp)
+    participant D as SQLite(content_vectors)
+
+    U->>B: 点击「开始重建」(collections=["exam"], force=true)
+    B->>A: POST /api/embed  {force, collections}
+    A->>A: 校验 token
+
+    alt 早期(未配置 token) —— 门禁拦截
+        A-->>B: 401 Unauthorized
+        Note over A,B: 错误被门禁挡住，永不进入 Handler\n(Bug 当时无法暴露)
+    else 配置 token 后(现在)
+        A->>H: 放行请求
+        H->>S: store.embed({force, model, collections})
+        Note over S: SDK 持有 internal(真正的 InternalStore)
+
+        rect rgb(214,234,248)
+        Note over S,G: ✅ 修复点：由 QMDStore 自己调用 generateEmbeddings(internal)
+        S->>G: generateEmbeddings(internal, {...})
+        G->>D: ① getHashesForEmbedding(db)\n只读 SQL 查待嵌入文档  [~ms]
+        G->>G: ② 分块 chunkDocumentByTokens\n30709字 → 73 chunks  [~ms]
+        opt force === true
+            G->>D: ③ clearEmbeddingsForCollections\n清空 exam 旧向量 (瞬间)
+        end
+        G->>L: ④ getLlama()  [2.1s]
+        G->>L: ⑤ loadModel()  [13s CPU / 65s GPU]
+        G->>L: ⑥ createEmbeddingContext()  [2.2s / 11s]
+        G->>L: ⑦ embed(首条·预热)  [8s CPU / 36s GPU]
+        loop 第 n 批 (共 73 chunks / 批大小 32)
+            G->>L: ⑧ embed(chunk n)  [~2s 集显 / ~25s CPU]
+        end
+        G->>D: ⑨ 每 32 条 COMMIT 一次 insertEmbedding()
+        G-->>S: 返回 {docsProcessed:1, chunksEmbedded:73, errors:0}
+        end
+
+        S-->>H: resolve(Promise 完成)
+        H-->>B: 200 OK {status:"ok", message:"embedding complete"}
+        B->>B: clearInterval(计时器)\n显示「重建完成」
+
+        Note over B,D: ⚠ 风险点：若 LLM 进程中途崩溃\n请求永不 resolve → 计时器一直空转(=1324s 现象)
+    end
+
+    Note over U,D: 📌 早期 Bug（已修复，红线示意）\nH 曾直接调用 generateEmbeddings(store=QMDStore,...)\n→ const db = store.db → undefined\n→ getHashesForEmbedding(undefined).prepare\n→ 报错 Cannot read properties of undefined (reading 'prepare')
+  </div>
+
+  <h2>附：一次重建的耗时构成（本机实测，exam 73 chunks）</h2>
+  <div class="mermaid">
+gantt
+    title 重建向量索引耗时（单位：秒）
+    dateFormat  X
+    axisFormat  %s
+    section 准备阶段(固定开销)
+    getLlama            :0, 2
+    loadModel(CPU)      :2, 15
+    createEmbeddingContext :15, 17
+    预热 embed          :17, 25
+    section 推理(真正干活)
+    embed×73 chunks CPU :25, 1850
+    section 推理(集显 GPU)
+    embed×73 chunks GPU :25, 255
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <b>CPU 模式（默认）</b><br>
+      总耗时 ≈ <b>30 分钟</b><br>
+      97% 时间花在 73 次 embed<br>
+      准备仅 ~23s 可忽略
+    </div>
+    <div class="card">
+      <b>集显 Vulkan（已启用）</b><br>
+      总耗时 ≈ <b>4.3 分钟</b><br>
+      准备升到 ~112s，但推理快 12×<br>
+      总提速约 7 倍
+    </div>
+    <div class="card">
+      <b>写入粒度风险</b><br>
+      每 32 条才 COMMIT 一次<br>
+      中途崩溃 → 前 32 条全丢<br>
+      且过程中 exam 一直显示 0 条
+    </div>
+  </div>
+
+  <footer>生成于 2026-09-10 · 数据来自本机实测（Intel UHD 集显 / 4 物理核 / node-llama-cpp 3.x）</footer>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: "default", sequence: { useMaxWidth: false } });
+</script>
+</body>
+</html>

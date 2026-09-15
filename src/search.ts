@@ -5,6 +5,7 @@
  */
 
 import type { Database } from "./db.js";
+import { getSettings } from "./settings.js";
 import {
   LlamaCpp,
   getDefaultLlamaCpp,
@@ -20,7 +21,6 @@ import {
   getContextForFile,
   getDocid,
   DEFAULT_RERANK_MODEL,
-  DEFAULT_QUERY_MODEL,
   type SearchResult,
   type ExpandedQuery,
 } from "./store.js";
@@ -262,7 +262,7 @@ async function getEmbedding(text: string, model: string, isQuery: boolean, sessi
   return result?.embedding || null;
 }
 
-export async function expandQuery(query: string, model: string = DEFAULT_QUERY_MODEL, db: Database, intent?: string, llmOverride?: LlamaCpp): Promise<ExpandedQuery[]> {
+export async function expandQuery(query: string, model: string = getSettings().queryExpansionModel, db: Database, intent?: string, llmOverride?: LlamaCpp): Promise<ExpandedQuery[]> {
   const cacheKey = getCacheKey("expandQuery", { query, model, ...(intent && { intent }) });
   const cached = getCachedResult(db, cacheKey);
   if (cached) {
@@ -336,8 +336,9 @@ export async function rerank(query: string, documents: { file: string; text: str
 }
 
 export function reciprocalRankFusion(
-  resultLists: RankedResult[][], weights: number[] = [], k: number = 60
+  resultLists: RankedResult[][], weights: number[] = [], k?: number
 ): RankedResult[] {
+  const effectiveK = k ?? getSettings().rrfK;
   const scores = new Map<string, { result: RankedResult; rrfScore: number; topRank: number }>();
   for (let listIdx = 0; listIdx < resultLists.length; listIdx++) {
     const list = resultLists[listIdx];
@@ -346,7 +347,7 @@ export function reciprocalRankFusion(
     for (let rank = 0; rank < list.length; rank++) {
       const result = list[rank];
       if (!result) continue;
-      const rrfContribution = weight / (k + rank + 1);
+      const rrfContribution = weight / (effectiveK + rank + 1);
       const existing = scores.get(result.file);
       if (existing) {
         existing.rrfScore += rrfContribution;
@@ -367,8 +368,9 @@ export function reciprocalRankFusion(
 
 export function buildRrfTrace(
   resultLists: RankedResult[][], weights: number[] = [],
-  listMeta: RankedListMeta[] = [], k: number = 60
+  listMeta: RankedListMeta[] = [], k?: number
 ): Map<string, RRFScoreTrace> {
+  const effectiveK = k ?? getSettings().rrfK;
   const traces = new Map<string, RRFScoreTrace>();
   for (let listIdx = 0; listIdx < resultLists.length; listIdx++) {
     const list = resultLists[listIdx];
@@ -379,7 +381,7 @@ export function buildRrfTrace(
       const result = list[rank0];
       if (!result) continue;
       const rank = rank0 + 1;
-      const contribution = weight / (k + rank);
+      const contribution = weight / (effectiveK + rank);
       const existing = traces.get(result.file);
       const detail: RRFContributionTrace = {
         listIndex: listIdx, source: meta.source, queryType: meta.queryType,
@@ -424,6 +426,7 @@ export function extractSnippet(body: string, query: string, maxLen = 500, chunkP
     searchBody = body.slice(contextStart, contextEnd);
     if (contextStart > 0) lineOffset = body.slice(0, contextStart).split('\n').length - 1;
   }
+  const settings = getSettings();
   const lines = searchBody.split('\n');
   const queryTerms = query.toLowerCase().split(/\s+/).filter(t => t.length > 0);
   const intentTerms = intent ? extractIntentTerms(intent) : [];
@@ -432,7 +435,7 @@ export function extractSnippet(body: string, query: string, maxLen = 500, chunkP
     const lineLower = (lines[i] ?? "").toLowerCase();
     let score = 0;
     for (const term of queryTerms) { if (lineLower.includes(term)) score += 1.0; }
-    for (const term of intentTerms) { if (lineLower.includes(term)) score += INTENT_WEIGHT_SNIPPET; }
+    for (const term of intentTerms) { if (lineLower.includes(term)) score += settings.intentWeightSnippet; }
     if (score > bestScore) { bestScore = score; bestLine = i; }
   }
   const start = Math.max(0, bestLine - 1);

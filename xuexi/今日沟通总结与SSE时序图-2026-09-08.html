@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MinerU Document Explorer — 沟通总结与 SSE 时序图 (2026-09-08)</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    color: #1a1a1a; line-height: 1.65; font-size: 12.5px; margin: 0; padding: 0;
+  }
+  .wrap { max-width: 800px; margin: 0 auto; padding: 8px 4px; }
+  h1 { font-size: 20px; border-bottom: 3px solid #1a73e8; padding-bottom: 6px; margin-bottom: 4px; }
+  h2 { font-size: 15px; margin-top: 22px; padding: 4px 0 4px 10px; border-left: 5px solid #1a73e8; background: #f3f7fd; }
+  h3 { font-size: 13px; margin: 14px 0 6px; color: #1a73e8; }
+  p, li { margin: 5px 0; }
+  code { background: #f1f3f4; padding: 1px 5px; border-radius: 3px; font-family: Consolas, "Courier New", monospace; font-size: 11.5px; }
+  pre { background: #0d1117; color: #e6edf3; padding: 12px 14px; border-radius: 6px; overflow-x: auto; font-size: 11px; line-height: 1.45; }
+  .muted { color: #5f6368; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 11.8px; }
+  th, td { border: 1px solid #c8cace; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #e8f0fe; }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .tag.a { background: #fde7e9; color: #c5221f; }
+  .tag.b { background: #e6f4ea; color: #137333; }
+  .tag.c { background: #fef7e0; color: #b06000; }
+  .box { border: 1px solid #dadce0; border-radius: 6px; padding: 10px 14px; margin: 8px 0; background: #fafafa; }
+  .diag { background: #fff; border: 1px solid #dadce0; border-radius: 6px; padding: 6px; margin: 8px 0; }
+  .seq { white-space: pre; font-family: Consolas, monospace; font-size: 10.8px; line-height: 1.35; overflow-x: auto; color: #0b3d0b; }
+  .footer { margin-top: 26px; border-top: 1px solid #dadce0; padding-top: 8px; color: #80868b; font-size: 11px; }
+  @media print {
+    h2 { page-break-after: avoid; }
+    .diag, table, pre { page-break-inside: avoid; }
+    a { color: #1a1a1a; text-decoration: none; }
+  }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>window.addEventListener('load', () => { if (window.mermaid) mermaid.initialize({ startOnLoad: true, theme: 'default', sequence: { useMaxWidth: true } }); });</script>
+</head>
+<body>
+<div class="wrap">
+
+<h1>MinerU Document Explorer（QMD）— 今日沟通总结与 SSE 时序图</h1>
+<p class="muted">日期：2026-09-08 ｜ 主题：RAG 检索架构答疑 + 查询四阶段「每步真实输出」流式改造 ｜ 文档性质：可 A4 打印</p>
+
+<h2>一、今日沟通主线</h2>
+<p>你今天沿「配置参数抽象 → 加 HTTP API 层 + 接问答 API → 前端页面」一路把 QMD 做完了，核心疑问有两条，最后落地为一次具体的代码改造：</p>
+<ol>
+  <li><b>架构疑问</b>：为什么接了「问答 API」之后，打开 html 仍然「要嵌入模型」？是不是重复/多余？</li>
+  <li><b>体验需求</b>：前端 loading 那四个阶段（嵌入模型 / 扩展模型 / 重排 / 生成答案）只是「假进度条」，要求把<b>每一步的真实中间产出</b>也显示出来。</li>
+</ol>
+<p>最终我们把 <code>POST /api/query</code> 从「一次性返回 JSON」改成了 <b>SSE 流式</b>，把检索各阶段（扩展 / 嵌入 / 重排）的真实数据与答案 token 实时推送到前端，并实测验证通过。</p>
+
+<h2>二、遇到的问题与解决</h2>
+
+<h3>问题 1 <span class="tag a">架构误解</span> — 为什么还要本地嵌入模型？</h3>
+<div class="box">
+<p><b>现象</b>：你接了「问答 API」（生成层），打开 HTML 提问却仍提示要加载「嵌入模型」，以为重复劳动。</p>
+<p><b>根因</b>：混淆了 RAG 的两个独立环节。问答 API <b>只负责「根据资料写答案」</b>（Generation），而「从你的文档库里找出最相关片段」这一检索步（Retrieval）本身就依赖<b>嵌入模型</b>把文档切块成向量、并把问题也向量化去做语义匹配。没有检索，LLM 只能凭空编（幻觉）。所以问答 API 替代不了 embedding。</p>
+<p><b>澄清点</b>：</p>
+<ul>
+  <li>嵌入模型有两个用途：①<em>建库时</em>嵌入文档（按集合一次性）；②<em>每次查询时</em>嵌入「问题」去向量库匹配。后者无法省。</li>
+  <li>文档 embedding 是<b>按集合一次性</b>写入的（<code>store.ts</code> 只挑缺失的块），已 embed 的集合查询是秒回的。</li>
+  <li>UI 上的「嵌入模型」字样有<b>一半是错觉</b>：它是前端硬编码的第一阶段，即使后端实际跳过了嵌入，UI 也会先亮它——属于「假进度」。</li>
+</ul>
+<p><b>结论</b>：嵌入模型不能省；你感知到的「要嵌入」多半是换了一个还没建向量的集合，或纯前端假进度。</p>
+</div>
+
+<h3>问题 2 <span class="tag b">功能实现</span> — 让四阶段每步真实输出可见</h3>
+<div class="box">
+<p><b>现象</b>：前端四阶段是纯前端推测进度（<code>app.js</code> 注释自述「非后端真实进度」），真实阶段信息（扩展了哪些词、嵌入耗时、重排候选数、答案逐字）全部被丢弃。</p>
+<p><b>根因</b>：<code>/api/query</code> 一次性返回最终结果，调用 <code>store.search()</code> 时<b>没有透传 <code>SearchHooks</code></b>——而 <code>hybridQuery</code> 其实<b>已内置</b>了 <code>onExpand / onEmbedStart / onEmbedDone / onRerankStart / onRerankDone</code> 五个回调，数据本就存在，只是没接出来。</p>
+<p><b>解决</b>：把 <code>/api/query</code> 改成 SSE 流式，把 hooks 真实数据逐一 <code>send(event, data)</code> 给前端；答案在 <code>rag.ts</code> 改为逐 token 流式；前端读流并按事件渲染。改动清单见第三节。</p>
+</div>
+
+<h3>问题 3 <span class="tag c">验证排查</span> — curl 一直返回 "Invalid JSON body"</h3>
+<div class="box">
+<p><b>现象</b>：用 <code>curl -d "{\"query\":\"...\"}"</code> 测 SSE，后端始终回 <code>{"error":"Invalid JSON body"}</code>，一度怀疑是代码没生效。</p>
+<p><b>根因</b>：<b>PowerShell 引号转义</b>把 <code>-d</code> 的内容传坏，服务端 <code>safeParse</code> 收到的不是合法 JSON。与代码无关（旧接口同样返回该错）。</p>
+<p><b>解决</b>：改用临时 JSON 文件 + <code>curl --data-binary @file</code>，绕开 shell 引号。随后 SSE 正常返回，证明确实是新代码在跑。</p>
+</div>
+
+<h3>问题 4 <span class="tag c">性能</span> — 首次查询等了 10 分钟</h3>
+<div class="box">
+<p><b>现象</b>：第一次提问迟迟不出结果。</p>
+<p><b>根因</b>：首次要加载嵌入模型 + 扩展模型（本地 llama.cpp）。实测本次扩展模型首次加载耗时 <b>~116 秒</b>；模型默认有闲置回收，反复冷启动就会很慢。</p>
+<p><b>解决</b>：此前已将模型设为<b>常驻</b>（<code>inactivityTimeoutMs = 0</code>）。首次预热后后续查询秒回。重启服务后第一次仍慢（加载模型），属正常。</p>
+</div>
+
+<h3>问题 5 <span class="tag c">运行/运维</span> — 浏览器「127.0.0.1 拒绝了我们的连接请求」</h3>
+<div class="box">
+<p><b>现象</b>：浏览器访问 <code>127.0.0.1:8787</code> 提示「拒绝了我们的连接请求」。诊断发现 8787 端口<b>无任何进程监听</b>，此前用后台方式拉起的新进程（PID 13412）已退出。</p>
+<p><b>根因</b>：用命令行工具以「后台方式」（如 PowerShell <code>Start-Process</code>）拉起的服务进程，归属工具临时 shell 的会话/作业（job）。命令执行完、shell 一退出，整棵进程树被一起回收——所以进程只活了几秒（够响应一两次健康检查），随后即死、端口空出。这也解释了为何 <code>serve.out.log</code> 里能看到 "running" 却连不上。</p>
+<p><b>对照</b>：你原先在终端手动 <code>npm run qmd -- serve</code> 启动的 18052 进程是稳定的——因为它在你<b>自己一直开着的终端会话</b>里常驻，不受工具 shell 影响。</p>
+<p><b>解决</b>：改用 <b>WMI 独立会话</b>拉起——通过 <code>Win32_Process.Create</code> 在系统会话创建进程，脱离工具 shell 的 job，不再被回收。验证 PID 1176 持续监听 8787，间隔多次查询均存活。临时启动脚本（<code>serve_run.bat</code> / <code>start_serve.ps1</code>）在确认常驻后已删除。</p>
+<p><b>注意</b>：</p>
+<ul>
+  <li>用命令行工具「后台启动」本项目服务<b>不可靠</b>（会被回收）；需常驻时请在<b>自己一直开着的终端</b>里 <code>npm run qmd -- serve</code>，或采用 WMI / 计划任务等独立会话方式。</li>
+  <li>当 8787 端口空闲（旧进程已死）时直接启动即可一次绑定成功；若旧进程未死会报端口冲突——此时先结束占用进程再启动。</li>
+</ul>
+</div>
+
+<p class="muted">以下问题 6–13 来自 <b>2026-09-07 的排障会话</b>（今天 SSE 流式改造的前置积累），一并归档于此，方便整体回顾。</p>
+
+<h3>问题 6 <span class="tag a">挂死</span> — qmd query 卡在 Expanding query 无输出</h3>
+<div class="box">
+<p><b>现象</b>：命令行 <code>qmd query</code> 一直停在扩展阶段，没有任何返回。</p>
+<p><b>根因</b>：底层 <code>evaluate</code> 正常 → 卡点在会话封装层；模型已缓存，排除首次下载。最终定位为推理依赖（node-llama-cpp）的会话接口缺陷。</p>
+<p><b>解决</b>：升级 <code>node-llama-cpp</code> 3.17.1 → 3.20.0（安装时遇「安全删除保护转交回收站超时」，关闭该保护后重装成功）；类型检查零改动通过。</p>
+</div>
+
+<h3>问题 7 <span class="tag a">挂死</span> — 升级后查询扩展仍卡死（grammar 死循环）</h3>
+<div class="box">
+<p><b>现象</b>：升级依赖后，带语法约束（grammar）的查询扩展依旧永久卡住。</p>
+<p><b>根因</b>：隔离对照——纯 prompt 自由生成 41s 正常，带 grammar 的 180s 超时；报错指向结束符 token 类型异常。主责在上游采样器、诱因是分词器，qmd 无责，且该缺陷旧版也存在。</p>
+<p><b>解决</b>：查询扩展弃用 grammar 约束，改为<b>自由生成 + 容错行解析</b>。可稳定产出 lex / vec / hyde 三类查询变体。</p>
+</div>
+
+<h3>问题 8 <span class="tag c">性能</span> — 杀软实时扫描 ~2GB 模型文件拖慢加载</h3>
+<div class="box">
+<p><b>现象</b>：首次冷查询 141s，第二次仅 11s，冷热差异巨大。</p>
+<p><b>根因</b>：第三方安全软件对 GGUF 大文件实时扫描（本次复测时段系统自带防护已停用，实际扫描者是第三方杀软，且无命令行排除接口）。</p>
+<p><b>解决</b>：在其界面把<b>模型目录（models/）</b>单独加入信任区——<b>不要</b>扩大到整个缓存目录（索引库和日志很小，排除它们只会不必要地扩大安全口子）。冷查询降到秒级。</p>
+</div>
+
+<h3>问题 9 <span class="tag c">性能</span> — 重排（cross-encoder）环节异常缓慢</h3>
+<div class="box">
+<p><b>现象</b>：完整检索超过 4 分钟，客户端直接超时。</p>
+<p><b>根因</b>：重排是 cross-encoder，查询须与每个候选块逐对拼接、各自跑一次完整前向，无法批量复用；低压 CPU 内存带宽受限（~15GB/s），每 token 要把整套 640MB 权重读一遍（单 pair 40–70s × 候选数 + 固定开销 → 10min+）。候选降到 3 个仍超 10min，固定开销才是大头。</p>
+<p><b>解决</b>：① 先用纯向量检索绕开精排跑通链路；② 把自带的「跳过重排」开关接到命令行与工具层并<b>默认关闭</b>（需最高精度时 <code>--rerank</code> 或 <code>skipRerank:false</code> 手动开）。完整检索从 270s+ 降到 ~8.9s。</p>
+</div>
+
+<h3>问题 10 <span class="tag b">加速</span> — 每次调用都重复加载模型（常驻服务）</h3>
+<div class="box">
+<p><b>现象</b>：即便绕开精排，每次调用仍花 ~205s 重新加载模型。</p>
+<p><b>根因</b>：重复加载模型是每次调用的固定成本。</p>
+<p><b>解决</b>：启动<b>常驻服务</b>让模型只加载一次、常驻内存；并清理无用死代码（如已不用的 <code>createGrammar</code>）。连续两次调用：首次 205.4s → 第二次 1.2s，提速 <b>164×</b>。</p>
+</div>
+
+<h3>问题 11 <span class="tag c">连接</span> — 客户端接常驻服务：127.0.0.1 连不上，localhost 可</h3>
+<div class="box">
+<p><b>现象</b>：改为连接常驻服务后，<code>127.0.0.1</code> 拒绝连接，<code>localhost</code> / <code>[::1]</code> 正常。</p>
+<p><b>根因</b>：常驻服务<b>仅监听 IPv6</b>（<code>127.0.0.1</code> 是 IPv4）。Node 解析 <code>localhost</code> 可用，非 Node 客户端需显式用 IPv6 形式。</p>
+<p><b>解决</b>：用户级配置由「进程方式」改为「直连本地端口」。验证 status 4ms、检索 8.3s（间隔超空闲阈值上下文回收重建，仍远快于冷启动）。</p>
+</div>
+
+<h3>问题 12 <span class="tag a">配置坑</span> — 敲 qmd 走全局包，改源码不生效</h3>
+<div class="box">
+<p><b>现象</b>：改了项目源码，运行 <code>qmd</code> 却看不到效果。</p>
+<p><b>根因</b>：命令行有<b>两份</b>——直接敲 <code>qmd</code> 走<b>全局安装包</b>（执行自己的 <code>dist/</code> 编译产物），与项目源码是两套不同代码。改源码须重新构建并覆盖 <code>dist</code> 才生效。</p>
+<p><b>解决</b>：开发期直接用 <code>npm run qmd</code>（走源码，永远最新）。判断依据：<code>where qmd</code> 看是否指向项目目录。</p>
+</div>
+
+<h3>问题 13 <span class="tag c">检索</span> — 中文关键词（BM25）检索零结果</h3>
+<div class="box">
+<p><b>现象</b>：用中文关键词做纯全文检索返回空。</p>
+<p><b>根因</b>：SQLite FTS5 对中文分词失效。</p>
+<p><b>解决</b>：中文场景请使用<b>向量检索或混合检索</b>路径，不要依赖纯 BM25。</p>
+</div>
+
+<p class="muted">以下问题 14–17 为 <b>2026-09-08 当天主线实现工作</b>（配置参数抽象 → 加 HTTP API 层 + 接问答 API → 前端页面），以「目标 / 解决」形式与前述故障类问题并列归档。</p>
+
+<h3>问题 14 <span class="tag b">配置</span> — 把散落的配置参数抽象成统一配置层</h3>
+<div class="box">
+<p><b>目标</b>：原先运行参数分散在 CLI、llm、store 多处硬编码，改一项要翻几个文件，也无法经网页动态调整。</p>
+<p><b>解决</b>：新增 <code>src/settings.ts</code> 集中定义配置结构；<code>src/api/server.ts</code> 暴露 <code>GET/PUT /api/config</code>（merge + 持久化）与 <code>POST /api/config/reset</code>，配置可经 HTTP 动态读写并落盘（第六章验证日志中可见 /api/config 的调用）。</p>
+</div>
+
+<h3>问题 15 <span class="tag b">API 层</span> — 新增 HTTP API 层并支持 SSE 流式推送</h3>
+<div class="box">
+<p><b>目标</b>：要接网页前端就需要 HTTP 接口；且要把检索各阶段实时推到前端（见问题 2）。</p>
+<p><b>解决</b>：新增 <code>src/api/</code>，<code>/api/query</code> 改为 SSE（<code>text/event-stream</code>），构造 <code>SearchHooks</code> 把 <code>expand/embed/rerank</code> 事件 <code>send</code> 给前端，答案 token 经 <code>onToken</code> 推 <code>token</code> 事件，结束 <code>send("done")</code>；并加客户端断开兜底（<code>req.on("close")</code>），避免前端关页面后服务端空跑。</p>
+</div>
+
+<h3>问题 16 <span class="tag b">问答 API</span> — 接入问答 API 并改逐 token 流式</h3>
+<div class="box">
+<p><b>目标</b>：答案要由你接的「问答 API」生成，且需与 SSE 阶段流同步、逐字蹦出。</p>
+<p><b>解决</b>：<code>src/rag.ts</code> 的 <code>GenerateAnswerOptions</code> 新增 <code>onToken?</code>；<code>generateAnswer</code> 改用 <code>stream:true</code> 解析 SSE delta 逐 token 回调；当问答 API 不返回 token 时降级为非流式请求，保证兼容。</p>
+</div>
+
+<h3>问题 17 <span class="tag b">前端</span> — 前端读取 SSE 流并实时渲染每步产出</h3>
+<div class="box">
+<p><b>目标</b>：HTML 要展示四阶段真实输出 + 流式答案，且阶段顺序要与后端真实一致。</p>
+<p><b>解决</b>：<code>src/web/index.html</code> 新增 <code>#stageOutput</code> / <code>#liveAnswer</code> 容器；<code>src/web/app.js</code> 读 <code>response.body</code> SSE 流，按 <code>expand/embed/rerank/generate/token/done/error</code> 事件实时渲染；阶段标记由后端事件驱动（不再前端瞎猜）；并修正阶段顺序为真实的 <b>扩展模型 → 嵌入模型 → 重排 → 生成答案</b>。</p>
+</div>
+
+<h2>三、本次改动文件清单</h2>
+<table>
+  <tr><th>文件</th><th>改动要点</th></tr>
+  <tr><td><code>src/index.ts</code></td><td><code>store.search</code> 的 <code>SearchOptions</code> 新增 <code>hooks?: SearchHooks</code>，并透传给 <code>hybridQuery</code> / <code>structuredSearch</code>（之前 hooks 被丢弃）</td></tr>
+  <tr><td><code>src/api/server.ts</code></td><td><code>/api/query</code> 改为 <b>SSE</b>（<code>text/event-stream</code>）；构造 <code>SearchHooks</code>，把各阶段 <code>send("expand"|"embed"|"rerank", …)</code> 推给前端；答案 token 经 <code>onToken</code> 推 <code>send("token", …)</code>；结束 <code>send("done", …)</code>。含客户端断开兜底（<code>req.on("close")</code>）</td></tr>
+  <tr><td><code>src/rag.ts</code></td><td><code>GenerateAnswerOptions</code> 新增 <code>onToken?</code>；<code>generateAnswer</code> 改用 <code>stream:true</code> 并解析 SSE delta，逐 token 回调；无 token 时降级为非流式请求</td></tr>
+  <tr><td><code>src/web/index.html</code></td><td>加载区新增 <code>#stageOutput</code>（每步输出）与 <code>#liveAnswer</code>（实时答案预览）容器；修正阶段顺序为真实的 <b>扩展模型 → 嵌入模型 → 重排 → 生成答案</b>；补充样式</td></tr>
+  <tr><td><code>src/web/app.js</code></td><td>读 <code>response.body</code> SSE 流，按 <code>expand/embed/rerank/generate/token/done/error</code> 事件实时渲染；阶段标记由后端事件驱动（不再前端瞎猜）；新增 <code>markStageActive/Done</code>、<code>appendStageOutput</code>、<code>handleStreamEvent</code> 等辅助函数</td></tr>
+</table>
+
+<h2>四、系统架构（RAG 两阶段）</h2>
+<div class="box">
+<p><b>检索层（Retrieval，依赖嵌入模型）</b>：问题 → 查询扩展（lex/vec/hyde）→ 向量化问题 → 向量库 + BM25 混合召回 → 重排 → 返回最相关片段。</p>
+<p><b>生成层（Generation，即你接的「问答 API」）</b>：片段 + 问题 → LLM → 带引用标记的答案。</p>
+<p>两层独立：<b>嵌入模型属于检索层</b>，问答 API 属于生成层，二者不能互相替代。</p>
+</div>
+
+<h2>五、详细时序图（SSE 流式查询）</h2>
+
+<div class="diag">
+<div class="mermaid">
+sequenceDiagram
+    actor U as 用户
+    participant FE as 浏览器(index.html / app.js)
+    participant API as API Server (/api/query · SSE)
+    participant SS as Store.search
+    participant HQ as hybridQuery
+    participant HK as SearchHooks
+    participant LM as 问答API(rag.generateAnswer)
+
+    U->>FE: 输入问题并点击「查询」
+    FE->>FE: 重置 #stageOutput / #liveAnswer / 阶段标记
+    FE->>API: POST /api/query {query, collections, …}
+    API-->>FE: HTTP 200, Content-Type: text/event-stream
+    Note over API: 建立 SSE 连接，写 ": connected"
+    API->>SS: withLLMSession(() => store.search({query, hooks}))
+
+    rect rgb(235,245,255)
+    Note over HQ,LM: 阶段 1 · 扩展模型 (expand)
+    HQ->>HQ: 生成 lex / vec / hyde 扩展词
+    HQ->>HK: onExpand(original, expanded, ms)
+    HK->>API: send("expand", {original, expanded, ms})
+    API-->>FE: event: expand (原文 + 扩展词列表)
+    end
+
+    rect rgb(238,255,238)
+    Note over HQ,LM: 阶段 2 · 嵌入模型 (embed)
+    HQ->>HK: onEmbedStart(count)
+    HK->>API: send("embed", {phase:"start", count})
+    API-->>FE: event: embed · start
+    HQ->>HQ: 向量化 N 条查询
+    HQ->>HK: onEmbedDone(ms)
+    HK->>API: send("embed", {phase:"done", ms})
+    API-->>FE: event: embed · done
+    end
+
+    rect rgb(255,250,235)
+    Note over HQ,LM: 阶段 3 · 重排 (rerank)
+    HQ->>HK: onRerankStart(chunkCount)
+    HK->>API: send("rerank", {phase:"start", chunkCount})
+    API-->>FE: event: rerank · start
+    HQ->>HQ: 对候选片段重排打分
+    HQ->>HK: onRerankDone(ms)
+    HK->>API: send("rerank", {phase:"done", ms})
+    API-->>FE: event: rerank · done
+    end
+
+    HQ-->>SS: 返回检索结果 results
+    SS-->>API: results (含 displayPath/title/score/bestChunk)
+
+    rect rgb(245,235,255)
+    Note over API,LM: 阶段 4 · 生成答案 (generate)
+    API->>LM: generateAnswer(query, results, {onToken})
+    API-->>FE: event: generate · start
+    loop 每个答案 token
+        LM-->>API: onToken(chunk)
+        API-->>FE: event: token {text}
+        FE->>FE: 追加文本到 #liveAnswer
+    end
+    LM-->>API: 完整 answer + sources
+    end
+
+    API-->>FE: event: done {query, model, sources, rawResults}
+    FE->>FE: renderResult(完整结果, 渲染引用 [n] 链接)
+    API->>API: res.end()
+    FE-->>U: 展示每步真实输出 + 流式答案 + 引用来源
+</sequenceDiagram>
+</div>
+<p class="muted">（若离线 mermaid 未渲染，下方为等价的 ASCII 时序图，可直接打印。）</p>
+<pre class="seq">用户        浏览器(app.js)        API(/api/query SSE)      Store.search      hybridQuery      SearchHooks      问答API
+ |             |                        |                      |                |                |
+ |--输入问题-->|                        |                      |                |                |
+ |             |--POST /api/query------>|                      |                |                |
+ |             |                        |--200 text/event-stream|                |                |
+ |             |                        |  ": connected"        |                |                |
+ |             |                        |--withLLMSession------>|                |                |
+ |             |                        |                      |--hybridQuery-->|                |
+ |             |                        |                      |                | [阶段1 扩展]   |
+ |             |                        |                      |                |--onExpand---->| HK
+ |             |<--event: expand--------|<---------------------send-------------|                |
+ |             |  (原文+扩展词)          |                      |                |                |
+ |             |                        |                      |                | [阶段2 嵌入]   |
+ |             |                        |                      |                |--onEmbedStart>| HK
+ |             |<--event: embed start---|<---------------------send-------------|                |
+ |             |                        |                      |  (向量化查询)  |                |
+ |             |                        |                      |                |--onEmbedDone->| HK
+ |             |<--event: embed done----|<---------------------send-------------|                |
+ |             |                        |                      |                | [阶段3 重排]   |
+ |             |                        |                      |                |--onRerankStart| HK
+ |             |<--event: rerank start--|<---------------------send-------------|                |
+ |             |                        |                      |  (重排候选)    |                |
+ |             |                        |                      |                |--onRerankDone| HK
+ |             |<--event: rerank done---|<---------------------send-------------|                |
+ |             |                        |<--results-------------|<---------------|                |
+ |             |                        |--generateAnswer(query,results,{onToken})--------------->|
+ |             |<--event: generate start|                      |                |                |
+ |             |                        |                      |                | [逐 token 流]  |
+ |             |<--event: token---------|<--onToken(chunk)-----|----------------|---------------|
+ |             |  (追加 #liveAnswer)    |                      |                |                |
+ |             |   ... (循环直到结束) ...                      |                |                |
+ |             |<--event: done----------|<--answer+sources-----|----------------|---------------|
+ |             |  (renderResult 含引用) |                      |                |                |
+ |<==展示每步真实输出+流式答案+引用来源========================================================|
+</pre>
+</div>
+
+<h2>六、验证结果（实测 SSE 输出片段）</h2>
+<p>启动独立测试实例 8799，查询「如何配置分块大小」，SSE 正确推送了完整事件流（节选）：</p>
+<pre>: connected
+
+event: expand
+data: {"original":"如何配置分块大小","expanded":[{"type":"lex","query":"分块大小配置指南"},{"type":"vec","query":"分块大小配置指南"},{"type":"hyde","query":"要配置分块大小，请遵循这些步骤: ..."}],"ms":116345}
+
+event: embed
+data: {"phase":"start","count":4}
+event: embed
+data: {"phase":"done","ms":18225}
+
+event: rerank
+data: {"phase":"start","chunkCount":7}
+event: rerank
+data: {"phase":"done","ms":0}
+
+event: generate
+data: {"phase":"start"}
+event: token
+data: {"text":"\n\n根据现有资料"}
+event: token
+data: {"text":"无法"}
+... (答案逐 token 流出) ...
+event: done
+data: {"query":"如何配置分块大小","model":"Qwen3.8-27B-FP8","sources":[...],"rawResults":[...]}</pre>
+
+<h2>七、交付物与后续建议</h2>
+<ul>
+  <li><b>已落地</b>：四个阶段真实产出 + 答案流式显示已全部实现并验证。</li>
+  <li><b>你需要做两步才能看到效果</b>：
+    <ol>
+      <li><b>重启服务</b>（当前 8787 跑的是旧 JSON 代码，tsx 不热重载）：在自己一直开着的终端里 <code>npm run qmd -- serve</code> 启动（<b>注意：用命令行工具「后台启动」会被会话回收，不可靠</b>，详见「问题 5」）。</li>
+      <li><b>硬刷新浏览器</b>（<code>Ctrl+Shift+R</code>）打开 HTML，提问即可在加载动画下方看到每一步真实输出，答案逐字蹦出。</li>
+    </ol>
+  </li>
+  <li><b>注意</b>：重启后第一次提问仍会慢（加载嵌入/扩展模型），首次预热后秒回（模型已设常驻）。</li>
+  <li><b>可选增强</b>：① 让 <code>/api/query</code> 在集合缺 embedding 时自动补 embed，免去手动重建；② 前端给每步输出加上耗时徽标、可折叠。</li>
+</ul>
+
+<h2>八、补充：底层排障背景（2026-09-07 的排障会话）</h2>
+<p class="muted">今天（9-08）的 SSE 流式改造建立在 9-07 已完成的排障之上——当时把 QMD 从「查询卡死」修到「常驻秒回」。以下把那次会话的排障脉络一并归档（问题现象/根因/解决/验证的完整时序另见 <code>qmd-flow-and-troubleshooting.html</code>）。</p>
+
+<h3>性能瓶颈演进时间线（症状 · 根因 · 修复 · 收益）</h3>
+<table>
+  <tr><th>阶段</th><th>症状</th><th>根因</th><th>修复</th><th>收益</th><th>状态</th></tr>
+  <tr><td>T0 后端</td><td>重排 7 块耗时 261s（阈值 60s）</td><td>集显被自动当加速器，算力弱于多线程 CPU</td><td>初始化关闭卸载，强制纯 CPU 推理</td><td>分钟级回落</td><td>已修复</td></tr>
+  <tr><td>T0 线程</td><td>并发能力异常低</td><td>数学核心探测返回 0，线程数退化</td><td>回退到系统报告并行度</td><td>线程恢复（现报 4 核）</td><td>已修复</td></tr>
+  <tr><td>T1 扫描</td><td>冷查询 141s / 二次 11s</td><td>安全软件扫描 ~2GB GGUF</td><td>仅对 models/ 加信任</td><td>141s→秒级</td><td>已修复</td></tr>
+  <tr><td>T2 采样</td><td>扩展阶段永久卡住</td><td>采样器结束标记死循环</td><td>升级依赖 + 自由生成容错解析</td><td>扩展恢复</td><td>已修复</td></tr>
+  <tr><td>T3 加载</td><td>每次重加载模型 ~205s</td><td>交叉编码器逐对前向 + 带宽受限</td><td>常驻服务，模型只载一次</td><td>205.4s→1.2s（164×）</td><td>已修复</td></tr>
+  <tr><td>T4 精排</td><td>完整检索 >4min 超时</td><td>精排逐对交叉编码，CPU 单次要几十秒</td><td>跳过重排开关接出并默认关</td><td>270s→8.9s</td><td>已修复</td></tr>
+  <tr><td>待办</td><td>仅手动开精排时</td><td>0.6B 8bit 约 640MB，每 token 整读</td><td>换更低量化 / 收窄上下文</td><td>预计近翻倍</td><td>未处理</td></tr>
+</table>
+
+<h3>运维要点（改造后仍需牢记）</h3>
+<ul>
+  <li><b>常驻服务是前置依赖</b>：原进程方式随用随起，现在必须先有常驻服务。重启电脑或进程被杀后需恢复（今天的 HTTP 服务见「问题 5」；原 MCP 常驻为 <code>qmd mcp --http --daemon</code>，用 <code>qmd status</code> 查看、<code>qmd mcp stop</code> 停止）。</li>
+  <li><b>仅监听 IPv6</b>：<code>127.0.0.1</code> 连不上，<code>localhost</code> / <code>[::1]</code> 可以（见「问题 11」）。</li>
+  <li><b>空闲回收</b>：超 5 分钟无请求释放上下文，下次透明重建（数秒）；模型权重不清空，仍远快于冷启动。</li>
+  <li><b>重排默认关闭</b>：完整检索默认跳过精排（~9s）；要最高精度再手动开。</li>
+  <li><b>中文 BM25 无效</b>：中文场景用向量/混合检索（见「问题 13」）。</li>
+  <li><b>命令行两份</b>：全局包 <code>dist</code> 与项目源码不同步，开发期用 <code>npm run qmd</code>（见「问题 12」）。</li>
+  <li><b>配置回滚</b>：原配置已备份（如 <code>C:/Users/wuzhu/.codebuddy/mcp.json.bak-20260907-182828</code>）。</li>
+</ul>
+
+<div class="footer">
+  本文档由 AI 自动整理于 2026-09-08。打印建议：浏览器打开 → Ctrl+P → 纸张 A4 → 边距默认 → 取消「页眉页脚」可更整洁。
+</div>
+
+</div>
+</body>
+</html>

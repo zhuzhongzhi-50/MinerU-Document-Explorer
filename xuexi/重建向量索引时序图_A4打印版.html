@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>重建向量索引时序图（A4打印版）</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  @page { size: A4; margin: 14mm 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Microsoft YaHei", "PingFang SC", SimSun, sans-serif;
+         color:#1f2d3d; margin:0; padding:0; background:#fff; }
+  .sheet { width:100%; padding:0 2mm; }
+  h1 { font-size:18pt; color:#1f3864; text-align:center; margin:4mm 0 2mm; }
+  h2 { font-size:13pt; color:#2e5395; border-left:5px solid #2e5395;
+       padding-left:6px; margin:8mm 0 3mm; page-break-after: avoid; }
+  .sub { text-align:center; font-size:9pt; color:#666; margin-bottom:4mm; }
+  .legend { font-size:9pt; line-height:1.6; background:#f4f7fb;
+            border:1px solid #d6e0ee; border-radius:4px; padding:3mm 4mm; margin-bottom:4mm; }
+  .legend b { color:#1f3864; }
+  .note { color:#c0392b; font-weight:bold; }
+  .ok { color:#1e8449; font-weight:bold; }
+  .diagram { width:100%; page-break-inside: avoid; margin:2mm 0; }
+  .diagram .mermaid { width:100%; }
+  table { width:100%; border-collapse:collapse; font-size:9pt; margin:2mm 0; page-break-inside: avoid; }
+  th, td { border:1px solid #cfd8e3; padding:2mm 3mm; text-align:left; vertical-align:top; }
+  th { background:#eef3fa; color:#1f3864; }
+  .btnrow { text-align:center; margin:4mm 0; }
+  button { font-size:11pt; padding:2mm 8mm; background:#2e5395; color:#fff;
+           border:none; border-radius:5px; cursor:pointer; }
+  @media print { .btnrow { display:none; } h1 { margin-top:0; } }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <h1>重建向量索引（/api/embed）请求时序图</h1>
+  <div class="sub">A4 打印版 · 数据来自本机实测（Intel UHD 集显 / 4 核 / node-llama-cpp 3.x）· 2026-09-10</div>
+
+  <div class="legend">
+    <b>参与方：</b>U 用户 · B 浏览器 · AUTH 鉴权 · API /api/embed · STORE QMDStore(index.js) · GEN generateEmbeddings(store.ts) · LLM node-llama-cpp · DB SQLite(content_vectors)<br>
+    <span class="ok">绿色</span> = 修复后的正确路径；<span class="note">红色</span> = 早期 Bug / 风险点；<b>[x s]</b> = 实测耗时（CPU / 集显 GPU）。
+  </div>
+
+  <h2>一、请求生命周期时序</h2>
+  <div class="diagram">
+  <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant B as 浏览器
+    participant AUTH as 鉴权
+    participant API as /api/embed
+    participant STORE as QMDStore
+    participant GEN as generateEmbeddings
+    participant LLM as LLM运行时
+    participant DB as SQLite
+
+    U->>B: 点击「开始重建」(exam, force)
+    B->>AUTH: POST /api/embed
+    AUTH->>AUTH: 校验 token
+    alt 早期(未配 token)
+        AUTH-->>B: 401 拦截(报错无法暴露)
+    else 现在(已配 token)
+        AUTH->>API: 放行
+        API->>STORE: store.embed()
+        rect rgb(214,234,248)
+        Note over STORE,GEN: ✅ 修复点：QMDStore 内部传 internal
+        STORE->>GEN: generateEmbeddings(internal)
+        GEN->>DB: ① 查待嵌入文档
+        GEN->>GEN: ② 分块 → 73 chunks
+        GEN->>DB: ③ 清空旧向量(force)
+        GEN->>LLM: ④ getLlama [2.1s]
+        GEN->>LLM: ⑤ loadModel [13s/65s]
+        GEN->>LLM: ⑥ createContext [2.2s/11s]
+        GEN->>LLM: ⑦ 预热 embed [8s/36s]
+        loop 73 chunks (批大小32)
+            GEN->>LLM: ⑧ embed [2s GPU/25s CPU]
+        end
+        GEN->>DB: ⑨ 每32条 COMMIT
+        GEN-->>STORE: 完成 {73 chunks}
+        end
+        STORE-->>API: resolve
+        API-->>B: 200 OK
+        B->>B: 清除计时器·显示完成
+        Note over B,DB: ⚠ 若 LLM 中途崩溃→请求不 resolve→计时器空转(=1324s)
+    end
+    Note over U,DB: 📌 早期Bug(已修复)：曾把 QMDStore 直接传入\n→ store.db 为 undefined → .prepare 报错
+  </div>
+  </div>
+
+  <h2>二、各阶段耗时明细</h2>
+  <table>
+    <tr><th>阶段</th><th>步骤</th><th>CPU</th><th>集显 GPU</th><th>说明</th></tr>
+    <tr><td>准备</td><td>getLlama</td><td>2.1s</td><td>2.1s</td><td>加载 llama.cpp 绑定</td></tr>
+    <tr><td>准备</td><td>loadModel</td><td>13s</td><td>65s</td><td>GPU 版模型加载更慢</td></tr>
+    <tr><td>准备</td><td>createEmbeddingContext</td><td>2.2s</td><td>11s</td><td>分配 GPU 显存上下文</td></tr>
+    <tr><td>准备</td><td>预热 embed</td><td>8s</td><td>36s</td><td>首条推理含编译开销</td></tr>
+    <tr><td>推理</td><td>embed ×73</td><td>~1825s</td><td>~146s</td><td>占总耗时 97%</td></tr>
+    <tr><td>写入</td><td>每32条 COMMIT</td><td>忽略</td><td>忽略</td><td>中途崩溃前32条全丢</td></tr>
+    <tr><td><b>合计</b></td><td>exam 73 chunks</td><td><b>~30 min</b></td><td><b>~4.3 min</b></td><td>集显快约 7 倍</td></tr>
+  </table>
+
+  <h2>三、耗时构成（甘特图）</h2>
+  <div class="diagram">
+  <div class="mermaid">
+gantt
+    title 重建向量索引耗时（秒）
+    dateFormat  X
+    axisFormat  %s
+    section 准备(固定)
+    getLlama      :0, 2
+    loadModel CPU :2, 15
+    createContext :15, 17
+    预热 embed    :17, 25
+    section 推理CPU
+    embed×73 CPU  :25, 1850
+    section 推理GPU
+    embed×73 GPU  :25, 255
+  </div>
+  </div>
+
+  <div class="btnrow"><button onclick="window.print()">🖨 打印 / 另存为 PDF</button></div>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: "default",
+    sequence: { useMaxWidth: true, fontSize: 15, wrap: true } });
+</script>
+</body>
+</html>

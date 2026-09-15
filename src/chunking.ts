@@ -6,6 +6,7 @@
  */
 
 import { getDefaultLlamaCpp } from "./llm.js";
+import { getSettings } from "./settings.js";
 
 // =============================================================================
 // Configuration
@@ -221,16 +222,21 @@ export function chunkDocument(
  */
 export async function chunkDocumentByTokens(
   content: string,
-  maxTokens: number = CHUNK_SIZE_TOKENS,
-  overlapTokens: number = CHUNK_OVERLAP_TOKENS,
-  windowTokens: number = CHUNK_WINDOW_TOKENS
+  maxTokens?: number,
+  overlapTokens?: number,
+  windowTokens?: number
 ): Promise<{ text: string; pos: number; tokens: number }[]> {
+  const s = getSettings();
+  const effMaxTokens = maxTokens ?? s.chunkSizeTokens;
+  const effOverlapTokens = overlapTokens ?? Math.floor(s.chunkSizeTokens * s.chunkOverlapRatio);
+  const effWindowTokens = windowTokens ?? s.chunkWindowTokens;
+
   const llm = getDefaultLlamaCpp();
 
   const avgCharsPerToken = 3;
-  const maxChars = maxTokens * avgCharsPerToken;
-  const overlapChars = overlapTokens * avgCharsPerToken;
-  const windowChars = windowTokens * avgCharsPerToken;
+  const maxChars = effMaxTokens * avgCharsPerToken;
+  const overlapChars = effOverlapTokens * avgCharsPerToken;
+  const windowChars = effWindowTokens * avgCharsPerToken;
 
   let charChunks = chunkDocument(content, maxChars, overlapChars, windowChars);
 
@@ -239,11 +245,11 @@ export async function chunkDocumentByTokens(
   for (const chunk of charChunks) {
     const tokens = await llm.tokenize(chunk.text);
 
-    if (tokens.length <= maxTokens) {
+    if (tokens.length <= effMaxTokens) {
       results.push({ text: chunk.text, pos: chunk.pos, tokens: tokens.length });
     } else {
       const actualCharsPerToken = chunk.text.length / tokens.length;
-      const safeMaxChars = Math.floor(maxTokens * actualCharsPerToken * 0.95);
+      const safeMaxChars = Math.floor(effMaxTokens * actualCharsPerToken * 0.95);
 
       const subChunks = chunkDocument(chunk.text, safeMaxChars, Math.floor(overlapChars * actualCharsPerToken / 2), Math.floor(windowChars * actualCharsPerToken / 2));
 

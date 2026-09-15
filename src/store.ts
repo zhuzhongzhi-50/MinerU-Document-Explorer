@@ -42,6 +42,7 @@ import type {
 // =============================================================================
 
 import { homedir as osHomedir } from "os";
+import { getSettings } from "./settings.js";
 
 // Use os.homedir() for cross-platform consistency (handles USERPROFILE on Windows).
 // process.env.HOME is unreliable in non-shell contexts (e.g., VSCode extension host).
@@ -1338,7 +1339,7 @@ export async function generateEmbeddings(
     store.ensureVecTable(firstResult.embedding.length);
 
     let chunksEmbedded = 0, errors = 0, bytesProcessed = 0;
-    const BATCH_SIZE = 32;
+    const BATCH_SIZE = getSettings().embedBatchSize;
 
     for (let batchStart = 0; batchStart < allChunks.length; batchStart += BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + BATCH_SIZE, allChunks.length);
@@ -1404,8 +1405,25 @@ export async function generateEmbeddings(
  * @param dbPath - Path to the SQLite database file
  * @returns Store instance with all methods bound to the database
  */
-export function createStore(dbPath?: string): Store {
-  const resolvedPath = dbPath || getDefaultDbPath();
+export type CreateStoreOptions = {
+  /** Explicit database file path. Falls back to getDefaultDbPath() when omitted. */
+  dbPath?: string;
+  /** Optional path to a config file (accepted for forward-compat with callers). */
+  configPath?: string;
+};
+
+/**
+ * Create a Store. Accepts either a plain db path string or an options object
+ * (`{ dbPath, configPath }`) — the API server passes the latter, while tests
+ * and helpers may pass a bare string.
+ */
+export function createStore(dbPathOrOptions?: string | CreateStoreOptions): Store {
+  let resolvedPath: string;
+  if (dbPathOrOptions && typeof dbPathOrOptions === "object") {
+    resolvedPath = dbPathOrOptions.dbPath || getDefaultDbPath();
+  } else {
+    resolvedPath = dbPathOrOptions || getDefaultDbPath();
+  }
   const db = openDatabase(resolvedPath);
   const { vecAvailable } = initializeDatabase(db);
 
@@ -1453,8 +1471,21 @@ export function createStore(dbPath?: string): Store {
     searchVec: (query: string, model: string, limit?: number, collectionName?: string, session?: ILLMSession, precomputedEmbedding?: number[]) => searchVec(db, query, model, limit, collectionName, session, precomputedEmbedding, vecAvailable),
 
     // Query expansion & reranking
-    expandQuery: (query: string, model?: string, intent?: string) => expandQuery(query, model, db, intent, store.llm),
-    rerank: (query: string, documents: { file: string; text: string }[], model?: string, intent?: string) => rerank(query, documents, model, db, intent, store.llm),
+    expandQuery: (query: string, model?: string, intent?: string) => {
+      if (!getSettings().enableQueryExpansion) {
+        // Expansion disabled: skip the expansion model entirely (no model load).
+        // Callers fall back to the original query only.
+        return Promise.resolve([]);
+      }
+      return expandQuery(query, model, db, intent, store.llm);
+    },
+    rerank: (query: string, documents: { file: string; text: string }[], model?: string, intent?: string) => {
+      if (!getSettings().enableRerank) {
+        // Reranking disabled: keep original (cosine/BM25) scores, skip local model load.
+        return Promise.resolve(documents.map((d) => ({ file: d.file, score: 0 })));
+      }
+      return rerank(query, documents, model, db, intent, store.llm);
+    },
 
     // Document retrieval
     findDocument: (filename: string, options?: { includeBody?: boolean }) => findDocument(db, filename, options),

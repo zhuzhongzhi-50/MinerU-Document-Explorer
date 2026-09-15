@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QMD 文档检索 · RAG</title>
+    <link rel="stylesheet" href="/style.css" />
+    <style>
+      .loading-body { display: flex; flex-direction: column; gap: 4px; }
+      .stages { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
+      .stage { color: #8a8a8a; transition: color .2s; }
+      .stage.done { color: #3aa757; }
+      .stage.active { color: #1a73e8; font-weight: 600; }
+      .arrow { color: #c4c4c4; }
+      .loading-meta { display: flex; gap: 12px; font-size: 12px; }
+      .muted { color: #8a8a8a; }
+      .btn.small { padding: 2px 10px; font-size: 12px; }
+      .stage-output { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; font-size: 13px; max-height: 260px; overflow-y: auto; width: 100%; }
+      .stage-output .so-item { border-left: 3px solid #1a73e8; padding: 4px 8px; background: #f6f8fc; border-radius: 4px; }
+      .stage-output .so-item .so-stage { font-weight: 600; color: #1a73e8; margin-right: 6px; }
+      .stage-output .so-item .so-body { color: #333; white-space: pre-wrap; word-break: break-word; }
+      .stage-output .so-item.done { border-left-color: #3aa757; }
+      .stage-output .so-item.done .so-stage { color: #3aa757; }
+      .live-answer { margin-top: 10px; padding: 10px 12px; background: #fff; border: 1px solid #e3e3e3; border-radius: 6px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; max-height: 320px; overflow-y: auto; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">📚 QMD 文档检索</div>
+      <nav class="tabs">
+        <button class="tab active" data-tab="query">问答</button>
+        <button class="tab" data-tab="config">配置</button>
+        <button class="tab" data-tab="index">索引</button>
+      </nav>
+      <div class="status" id="healthStatus" title="API 连接状态">● 连接中…</div>
+      <div class="topbar-right">
+        <span id="userBadge" class="user-badge" hidden></span>
+        <button id="logoutBtn" class="btn ghost small" type="button" hidden>退出登录</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- ===== 问答 ===== -->
+      <section id="tab-query" class="panel active">
+        <div class="query-box card">
+          <textarea
+            id="qInput"
+            rows="3"
+            placeholder="输入你的问题，例如：如何配置分块大小？"
+          ></textarea>
+          <div class="query-actions">
+            <button id="qSend" class="btn primary">提问</button>
+            <button id="qClear" class="btn ghost">清空</button>
+            <label class="adv-toggle"
+              ><input type="checkbox" id="advToggle" /> 高级选项</label
+            >
+          </div>
+          <div class="advanced" id="advBox" hidden>
+            <div class="field">
+              <label>集合（留空=全部，逗号分隔）</label>
+              <input id="qCollections" placeholder="exam, docs" />
+            </div>
+            <div class="row">
+              <div class="field">
+                <label>返回条数 limit</label>
+                <input type="number" id="qLimit" value="10" min="1" />
+              </div>
+              <div class="field">
+                <label>引用条数 topK</label>
+                <input type="number" id="qTopK" value="10" min="1" />
+              </div>
+              <div class="field">
+                <label>最低分 minScore</label>
+                <input type="number" id="qMinScore" value="0" step="0.01" />
+              </div>
+              <div class="field">
+                <label>候选池 candidateLimit</label>
+                <input type="number" id="qCandidateLimit" placeholder="默认=limit" min="1" />
+              </div>
+              <div class="field">
+                <label>意图 intent（可选）</label>
+                <input id="qIntent" placeholder="howto / 概念 / 排查" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="qLoading" class="loading" hidden>
+          <span class="spinner"></span>
+          <div class="loading-body">
+            <div id="loadingStages" class="stages">
+              <span class="stage" data-stage="expand">扩展模型</span>
+              <span class="arrow">→</span>
+              <span class="stage" data-stage="embed">嵌入模型</span>
+              <span class="arrow">→</span>
+              <span class="stage" data-stage="rerank">重排</span>
+              <span class="arrow">→</span>
+              <span class="stage" data-stage="generate">生成答案</span>
+            </div>
+            <div class="loading-meta">
+              <span id="loadingTimer" class="muted">已等待 0 秒</span>
+              <span id="loadingHint" class="muted"></span>
+            </div>
+            <div id="stageOutput" class="stage-output"></div>
+            <div id="liveAnswer" class="live-answer" hidden></div>
+          </div>
+          <button id="qCancel" class="btn ghost small" hidden>取消</button>
+        </div>
+        <div id="qError" class="error" hidden></div>
+
+        <div id="qEmpty" class="empty-state">
+          <div class="es-emoji">💡</div>
+          <div class="es-title">输入问题，开始检索</div>
+          <div class="es-sub">
+            展开「高级选项」可调整检索集合、返回条数、相似度阈值等
+          </div>
+        </div>
+
+        <div id="qResult" class="result" hidden>
+          <div class="answer card">
+            <div class="answer-head">
+              <span class="ah-title"
+                >回答 <span id="qModel" class="badge"></span
+              ></span>
+              <button id="qCopy" class="icon-btn" type="button" title="复制回答">复制</button>
+            </div>
+            <div class="answer-body" id="qAnswer"></div>
+          </div>
+          <div class="sources">
+            <div class="sources-head">参考来源（答案引用）</div>
+            <ol id="qSources"></ol>
+            <div class="sources-head" style="margin-top: 18px">
+              全部检索结果
+              <button id="qExpandAll" style="margin-left:8px;font-size:12px;cursor:pointer;padding:1px 8px;">展开全部</button>
+            </div>
+            <ol id="qRaw"></ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== 配置 ===== -->
+      <section id="tab-config" class="panel">
+        <div class="config-toolbar">
+          <button id="cfgSave" class="btn primary">保存更改</button>
+          <button id="cfgReset" class="btn ghost">恢复默认</button>
+          <span id="cfgMsg" class="msg"></span>
+        </div>
+        <form id="configForm" class="config-form"></form>
+        <div id="modelWarmStatus" class="msg" hidden></div>
+      </section>
+
+      <!-- ===== 索引 ===== -->
+      <section id="tab-index" class="panel">
+        <div class="card">
+          <h3>重建向量索引</h3>
+          <p class="muted">
+            对指定集合（或全库）重新生成 embedding。首次使用或新增文档后需要执行。
+            首次会在本地下载/加载嵌入模型，耗时较久。
+          </p>
+          <div class="field">
+            <label>集合（留空=全部，逗号分隔）</label>
+            <input id="eCollections" placeholder="exam" />
+          </div>
+          <label class="check"
+            ><input type="checkbox" id="eForce" /> 强制重建（覆盖已存在的
+            embedding）</label
+          >
+          <div style="margin-top: 12px">
+            <button id="eBtn" class="btn primary">开始重建</button>
+          </div>
+          <div id="eResult" class="msg" hidden></div>
+        </div>
+
+        <div class="card" style="margin-top: 16px">
+          <h3>上传文档建索引</h3>
+          <p class="muted">
+            上传文档到指定集合并自动建立向量索引。集合不存在时将自动创建（存储于 qmd 配置目录的
+            uploads/ 下）。首次会在本地下载/加载嵌入模型，耗时较久。
+          </p>
+          <div class="field">
+            <label>集合名称（不存在将自动创建）</label>
+            <input id="uCollection" list="uCollList" placeholder="exam" />
+            <datalist id="uCollList"></datalist>
+          </div>
+          <div class="field">
+            <label>选择文档（支持 .md/.txt/.pdf/.docx/.pptx 等）</label>
+            <input id="uFile" type="file" accept=".md,.markdown,.txt,.pdf,.docx,.doc,.pptx,.ppt" />
+          </div>
+          <label class="check"
+            ><input type="checkbox" id="uAuto" checked /> 上传后自动建立索引</label
+          >
+          <div style="margin-top: 12px">
+            <button id="uBtn" class="btn primary">上传并建索引</button>
+          </div>
+          <div id="uResult" class="msg" hidden></div>
+          <div id="uProgress" class="muted" hidden></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      QMD 文档检索 · RAG 前端 · 所有数据均在本地处理
+    </footer>
+
+    <!-- ===== 登录遮罩 ===== -->
+    <div id="loginOverlay" class="login-overlay" hidden>
+      <div class="login-card card">
+        <h2>🔐 登录 QMD</h2>
+        <p class="muted">使用用户名与密码登录（也可在「配置」中粘贴 CLI 生成的 token）。</p>
+        <div class="field">
+          <label>用户名</label>
+          <input id="loginUser" type="text" placeholder="username" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label>密码</label>
+          <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <button id="loginBtn" class="btn primary" style="width: 100%">登录</button>
+        <div id="loginErr" class="error" hidden></div>
+      </div>
+    </div>
+
+    <div class="toast-wrap" id="toastWrap"></div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

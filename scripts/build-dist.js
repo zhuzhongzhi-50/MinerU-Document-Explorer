@@ -13,6 +13,14 @@ const dstPy = path.join(root, "dist", "backends", "python");
 fs.rmSync(dstPy, { recursive: true, force: true });
 fs.cpSync(srcPy, dstPy, { recursive: true });
 
+// 1.5. Frontend static assets: copy src/web -> dist/web so `qmd serve` hosts them.
+const srcWeb = path.join(root, "src", "web");
+const dstWeb = path.join(root, "dist", "web");
+if (fs.existsSync(srcWeb)) {
+  fs.rmSync(dstWeb, { recursive: true, force: true });
+  fs.cpSync(srcWeb, dstWeb, { recursive: true });
+}
+
 // 2. Ensure the CLI entry has a shebang so it can run directly as `qmd`.
 const qmdJs = path.join(root, "dist", "cli", "qmd.js");
 let content = fs.readFileSync(qmdJs, "utf-8");

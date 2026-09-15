@@ -162,8 +162,14 @@ export interface SearchOptions {
   limit?: number;
   /** Minimum score threshold */
   minScore?: number;
+  /** Candidate pool size fed into rerank before the final slice to `limit`.
+   *  When unset, the API layer defaults it to follow `limit` so a single
+   *  knob controls both the pool and the final result count. */
+  candidateLimit?: number;
   /** Include explain traces */
   explain?: boolean;
+  /** Progress hooks for streaming stage output (e.g. to an HTTP client) */
+  hooks?: SearchHooks;
 }
 
 /**
@@ -403,9 +409,11 @@ export async function createStore(options: StoreOptions): Promise<QMDStore> {
           collections: collections.length > 0 ? collections : undefined,
           limit: opts.limit,
           minScore: opts.minScore,
+          candidateLimit: opts.candidateLimit,
           explain: opts.explain,
           intent: opts.intent,
           skipRerank,
+          hooks: opts.hooks,
         });
       }
 
@@ -417,6 +425,7 @@ export async function createStore(options: StoreOptions): Promise<QMDStore> {
         explain: opts.explain,
         intent: opts.intent,
         skipRerank,
+        hooks: opts.hooks,
       });
     },
     searchLex: async (q, opts) => internal.searchFTS(q, opts?.limit, opts?.collection),

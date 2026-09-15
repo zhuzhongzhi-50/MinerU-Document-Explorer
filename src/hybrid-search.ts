@@ -13,6 +13,7 @@ import type { Store, ExpandedQuery } from "./store.js";
 import { DEFAULT_EMBED_MODEL } from "./store.js";
 import { getDefaultLlamaCpp, formatQueryForEmbedding, type LlamaCpp } from "./llm.js";
 import { chunkDocument } from "./chunking.js";
+import { getSettings } from "./settings.js";
 import {
   reciprocalRankFusion,
   buildRrfTrace,
@@ -297,16 +298,21 @@ function chunkAndSelectBest(
   queryTerms: string[],
   intentTerms: string[],
 ): ChunkMap {
+  const settings = getSettings();
   const docChunkMap: ChunkMap = new Map();
   for (const cand of candidates) {
-    const rawChunks = chunkDocument(cand.body);
+    // Follow the configured chunk size (char approximation) instead of the
+    // hardcoded CHUNK_SIZE_CHARS constant, so retrieval chunking stays aligned
+    // with the indexed chunk size.
+    const maxChars = Math.max(1, Math.floor(settings.chunkSizeTokens * 4));
+    const rawChunks = chunkDocument(cand.body, maxChars);
     if (rawChunks.length === 0) continue;
 
     const chunks = rawChunks.map((c) => {
       const chunkLower = c.text.toLowerCase();
       let score = queryTerms.reduce((acc, term) => acc + (chunkLower.includes(term) ? 1 : 0), 0);
       for (const term of intentTerms) {
-        if (chunkLower.includes(term)) score += INTENT_WEIGHT_CHUNK;
+        if (chunkLower.includes(term)) score += settings.intentWeightChunk;
       }
       return { text: c.text, pos: c.pos, score };
     });
@@ -344,9 +350,10 @@ export async function hybridQuery(
   query: string,
   options?: HybridQueryOptions
 ): Promise<HybridQueryResult[]> {
-  const limit = options?.limit ?? 10;
-  const minScore = options?.minScore ?? 0;
-  const candidateLimit = options?.candidateLimit ?? RERANK_CANDIDATE_LIMIT;
+  const settings = getSettings();
+  const limit = options?.limit ?? settings.queryLimit;
+  const minScore = options?.minScore ?? settings.minScore;
+  const candidateLimit = options?.candidateLimit ?? settings.candidateLimit;
   const collection = options?.collection;
   const explain = options?.explain ?? false;
   const intent = options?.intent;
@@ -366,8 +373,8 @@ export async function hybridQuery(
   const topScore = initialFts[0]?.score ?? 0;
   const secondScore = initialFts[1]?.score ?? 0;
   const hasStrongSignal = !intent && initialFts.length > 0
-    && topScore >= STRONG_SIGNAL_MIN_SCORE
-    && (topScore - secondScore) >= STRONG_SIGNAL_MIN_GAP;
+    && topScore >= settings.strongSignalMinScore
+    && (topScore - secondScore) >= settings.strongSignalMinGap;
 
   if (hasStrongSignal) hooks?.onStrongSignal?.(topScore);
 

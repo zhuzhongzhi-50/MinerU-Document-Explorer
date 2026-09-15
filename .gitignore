@@ -43,3 +43,8 @@ demo/wiki/
 demo/survey.md
 # Test data
 test_raw/
+
+# QMD runtime settings — contains plaintext API keys; ignore defensively.
+# (Lives in ~/.config/qmd by default, outside the repo, but guard against
+#  accidental in-repo copies being committed.)
+**/settings.json

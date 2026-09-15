@@ -69,6 +69,7 @@ import {
   type ReindexResult,
 } from "../store.js";
 import { disposeDefaultLlamaCpp, getDefaultLlamaCpp, withLLMSession, pullModels, DEFAULT_EMBED_MODEL_URI, DEFAULT_GENERATE_MODEL_URI, DEFAULT_RERANK_MODEL_URI, DEFAULT_MODEL_CACHE_DIR } from "../llm.js";
+import { getSettings, updateSettings, resetSettings, createUser, listUsers, revokeToken, findUserByUsername, setUserPassword, type QmdSettings } from "../settings.js";
 import {
   formatSearchResults,
   formatDocuments,
@@ -2229,6 +2230,63 @@ async function querySearch(query: string, opts: OutputOptions, _embedModel: stri
   }, { maxDuration: 10 * 60 * 1000, name: 'querySearch' });
 }
 
+// ---------------------------------------------------------------------------
+// Config command: qmd config <list|get|set|reset>
+// Reads/writes runtime settings persisted to ~/.config/qmd/settings.json.
+// ---------------------------------------------------------------------------
+function coerceConfigValue(raw: string): unknown {
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (raw !== "" && !Number.isNaN(Number(raw))) return Number(raw);
+  return raw;
+}
+
+function handleConfigCommand(args: string[]): void {
+  const sub = args[0];
+  if (!sub || sub === "list") {
+    console.log(JSON.stringify(getSettings(), null, 2));
+    return;
+  }
+  if (sub === "get") {
+    const key = args[1];
+    const cur = getSettings() as Record<string, unknown>;
+    if (!key || !(key in cur)) {
+      console.error(`Unknown setting: ${key ?? ""}`);
+      console.error(`Valid keys: ${Object.keys(cur).join(", ")}`);
+      process.exit(1);
+    }
+    console.log(String(cur[key]));
+    return;
+  }
+  if (sub === "set") {
+    const key = args[1];
+    const raw = args[2];
+    const cur = getSettings() as Record<string, unknown>;
+    if (!key || raw === undefined || !(key in cur)) {
+      console.error("Usage: qmd config set <key> <value>");
+      if (key && !(key in cur)) console.error(`Unknown setting: ${key}\nValid keys: ${Object.keys(cur).join(", ")}`);
+      process.exit(1);
+    }
+    try {
+      const updated = updateSettings({ [key]: coerceConfigValue(raw) } as Partial<QmdSettings>);
+      console.log(`✓ ${key} = ${JSON.stringify(coerceConfigValue(raw))}`);
+      console.log(JSON.stringify(updated, null, 2));
+    } catch (e) {
+      console.error(`Invalid value for ${key}: ${(e as Error).message}`);
+      process.exit(1);
+    }
+    return;
+  }
+  if (sub === "reset") {
+    console.log("✓ Settings reset to defaults");
+    console.log(JSON.stringify(resetSettings(), null, 2));
+    return;
+  }
+  console.error(`Unknown subcommand: ${sub}`);
+  console.error("Usage: qmd config <list|get|set|reset>");
+  process.exit(1);
+}
+
 // Parse CLI arguments using util.parseArgs
 function parseCLI() {
   const { values, positionals } = parseArgs({
@@ -2288,6 +2346,9 @@ function parseCLI() {
       daemon: { type: "boolean" },
       port: { type: "string" },
       host: { type: "string" },
+      // User / auth options
+      username: { type: "string" },
+      password: { type: "string" },
     },
     allowPositionals: true,
     strict: false, // Allow unknown options to pass through
@@ -2335,6 +2396,17 @@ function parseCLI() {
     opts,
     values,
   };
+}
+
+// Prompt for a password on stderr (so the value never lands in shell history /
+// process listings). Uses the promise-based readline interface.
+async function promptPassword(promptText: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return (await rl.question(promptText)).toString();
+  } finally {
+    rl.close();
+  }
 }
 
 function getSkillInstallDir(globalInstall: boolean): string {
@@ -2471,6 +2543,7 @@ function showHelp(): void {
   console.log("");
   console.log("Primary commands:");
   console.log("  qmd query <query>             - Hybrid search with auto expansion + reranking (recommended)");
+  console.log("  qmd serve [--port 8787]       - Start HTTP API server (config + query/RAG + embed)");
   console.log("  qmd query 'lex:..\\nvec:...'   - Structured query document (you provide lex/vec/hyde lines)");
   console.log("  qmd search <query>            - Full-text BM25 keywords (no LLM)");
   console.log("  qmd vsearch <query>           - Vector similarity only");
@@ -2624,6 +2697,10 @@ if (isMain) {
   }
 
   switch (cli.command) {
+    case "config": {
+      handleConfigCommand(cli.args);
+      break;
+    }
     case "context": {
       const subcommand = cli.args[0];
       if (!subcommand) {
@@ -3031,6 +3108,111 @@ if (isMain) {
         const { startMcpServer } = await import("../mcp/server.js");
         await startMcpServer(getDbPath());
       }
+      break;
+    }
+
+    case "user": {
+      const sub = cli.args[0];
+      if (sub === "add") {
+        const name = cli.args[1];
+        const username = cli.values.username as string | undefined;
+        let password = cli.values.password as string | undefined;
+
+        // If a username is requested but no password given, prompt interactively
+        // (so the password never appears in shell history / process listings).
+        if (username && !password) {
+          password = await promptPassword(`Set password for "${username}": `);
+        }
+
+        try {
+          const created = createUser(name, username, password);
+          console.log(`${c.green}User created${c.reset}`);
+          console.log(`  userId   : ${created.userId}`);
+          console.log(`  name     : ${created.name}`);
+          if (created.username) console.log(`  username : ${created.username}`);
+          console.log(`  token    : ${created.token}`);
+          console.log("");
+          console.log("Pass this token to the API as: Authorization: Bearer " + created.token);
+          if (created.username) {
+            console.log("This account can also log in with: username + password");
+          }
+        } catch (e) {
+          console.error(`${c.yellow}Error: ${e instanceof Error ? e.message : String(e)}${c.reset}`);
+          process.exit(1);
+        }
+        break;
+      }
+      if (sub === "list") {
+        const users = listUsers();
+        if (users.length === 0) {
+          console.log("No users yet. Create one with: qmd user add <name>");
+        } else {
+          console.log(`${users.length} user(s):`);
+          for (const u of users) {
+            console.log(`  ${u.name}  (userId=${u.userId})  token=${u.token.slice(0, 12)}…`);
+          }
+        }
+        break;
+      }
+      if (sub === "set-password") {
+        const username = cli.args[1] || (cli.values.username as string | undefined);
+        if (!username) {
+          console.error("Usage: qmd user set-password <username> [--password <pw>]");
+          process.exit(1);
+        }
+        const userId = findUserByUsername(username);
+        if (!userId) {
+          console.error(`用户不存在: ${username}`);
+          process.exit(1);
+        }
+        let password = cli.values.password as string | undefined;
+        if (!password) {
+          password = await promptPassword(`New password for "${username}": `);
+        }
+        if (!password) {
+          console.error("密码不能为空");
+          process.exit(1);
+        }
+        setUserPassword(userId, password);
+        console.log(`${c.green}密码已更新${c.reset}: ${username}`);
+        break;
+      }
+      if (sub === "revoke") {
+        const tok = cli.args[1];
+        if (!tok) {
+          console.error("Usage: qmd user revoke <token>");
+          process.exit(1);
+        }
+        const ok = revokeToken(tok);
+        console.log(ok ? "Token revoked." : "Token not found.");
+        break;
+      }
+      console.error("Usage: qmd user <add|list|set-password|revoke> [args]");
+      console.error("  qmd user add <name> [--username <u>] [--password <p>]   Create a user (+ optional login account)");
+      console.error("  qmd user list                                           List all users");
+      console.error("  qmd user set-password <username> [--password <p>]       Set/replace a user's password");
+      console.error("  qmd user revoke <token>                                 Revoke a token");
+      process.exit(1);
+      break;
+    }
+
+    case "serve": {
+      const port = Number(cli.values.port) || 8787;
+      const rawHost = cli.values.host;
+      const hostArg = typeof rawHost === "string" ? rawHost : undefined;
+      const { startApiServer } = await import("../api/server.js");
+      const handle = await startApiServer(port, { host: hostArg });
+      console.log(`${c.green}QMD API server running${c.reset} on http://${hostArg || "127.0.0.1"}:${port}`);
+      console.log("");
+      console.log("  GET  /health");
+      console.log("  GET  /api/config            current settings");
+      console.log("  PUT  /api/config            merge + persist settings");
+      console.log("  POST /api/config/reset      reset settings to defaults");
+      console.log("  POST /api/query  { query, collections?, limit?, minScore?, topK?, intent? }");
+      console.log("  POST /api/embed  { collections?, force? }");
+      console.log("");
+      console.log("Press Ctrl+C to stop.");
+      // Keep the process alive — the HTTP server holds the event loop open.
       break;
     }
 
@@ -3656,7 +3838,7 @@ if (isMain) {
       process.exit(1);
   }
 
-  if (cli.command !== "mcp") {
+  if (cli.command !== "mcp" && cli.command !== "serve") {
     await disposeDefaultLlamaCpp();
     process.exit(0);
   }

@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QMD 用户名密码登录 · 设计与经验沉淀</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(160deg, #0b1220 0%, #131e33 50%, #0d1526 100%);
+    color: #e2e8f0;
+    line-height: 1.75;
+    padding: 0 0 80px;
+  }
+  header {
+    padding: 46px 32px 26px;
+    text-align: center;
+    border-bottom: 1px solid rgba(148,163,184,.18);
+    background: radial-gradient(900px 320px at 50% -40%, rgba(56,189,248,.20), transparent);
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 30px;
+    letter-spacing: .5px;
+    background: linear-gradient(90deg, #38bdf8, #a78bfa 60%, #f472b6);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header p { margin: 0; color: #94a3b8; font-size: 15px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  section { margin-top: 42px; }
+  h2 {
+    font-size: 21px; margin: 0 0 14px; padding-left: 12px;
+    border-left: 4px solid #38bdf8; color: #f1f5f9;
+  }
+  h3 { font-size: 16px; color: #7dd3fc; margin: 22px 0 8px; }
+  p, li { color: #cbd5e1; font-size: 14.5px; }
+  a { color: #7dd3fc; }
+  code {
+    background: rgba(148,163,184,.14); border: 1px solid rgba(148,163,184,.2);
+    padding: 1px 6px; border-radius: 6px; font-size: 13px; color: #fbbf24;
+  }
+  pre {
+    background: #0a1322; border: 1px solid rgba(148,163,184,.18);
+    border-radius: 12px; padding: 16px 18px; overflow-x: auto;
+    font-size: 13px; line-height: 1.6;
+  }
+  pre code { background: none; border: none; padding: 0; color: #e2e8f0; }
+  .card {
+    background: rgba(148,163,184,.07); border: 1px solid rgba(148,163,184,.18);
+    border-radius: 14px; padding: 18px 20px; margin: 14px 0;
+  }
+  .ok { color: #34d399; }
+  .warn { color: #fbbf24; }
+  .ref { color: #94a3b8; font-size: 12.5px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid rgba(148,163,184,.2); padding: 9px 12px; text-align: left; }
+  th { background: rgba(56,189,248,.12); color: #e2e8f0; }
+  .mermaid { background: #0a1322; border-radius: 12px; padding: 8px; margin: 14px 0; }
+  ul { margin: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>QMD 用户名密码登录 · 设计与经验沉淀</h1>
+  <p>自建账号 + 可替换凭证校验 · 2026-09-15 · 基于 MinerU-Document-Explorer 现网实现</p>
+</header>
+<main>
+
+<section>
+  <h2>一、背景与结论</h2>
+  <p>原 QMD 的 API 鉴权只有一种方式：CLI/管理员用 <code>qmd user add</code> 生成的 Bearer token（写入 <code>tokens.json</code>）。
+  这对“人”使用不够友好——要手动复制粘贴一长串 token。本次新增<strong>用户名 + 密码登录</strong>能力，并保留原有 token 体系兼容。</p>
+  <div class="card">
+    <strong>产品结论（与需求方确认）：</strong>
+    <ul>
+      <li>账号<strong>先由 QMD 自建</strong>，但把“凭证校验”抽象成可替换函数，<span class="ok">预留对接你方已有身份库</span>。</li>
+      <li>密码<strong>存在现有文件用户库</strong>（<code>~/.config/qmd/users/&lt;id&gt;.json</code> 增加字段），零新增依赖。</li>
+      <li>登录签发的 token <strong>不过期</strong>，与现有 CLI token 一致（内网/可信环境足够简单）。</li>
+      <li>安全做到<strong>加强版</strong>：scrypt 哈希 + 统一 401 + 登录限流 + 退出登录 + 失败日志。</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>二、数据模型</h2>
+  <p>用户文件 <code>~/.config/qmd/users/&lt;userId&gt;.json</code> 新增两个字段，其余结构不变：</p>
+  <pre><code>{
+  "name": "Alice",
+  "username": "alice",              // 新增，唯一（用户名登录用）
+  "passwordHash": "scrypt$&lt;saltHex&gt;$&lt;hashHex&gt;", // 新增，scrypt 哈希
+  "createdAt": 1730000000000,
+  "settings": {}
+}</code></pre>
+  <p class="ref">字段写入位置：<code>src/settings.ts</code> 中 <code>createUser</code> 与 <code>setUserPassword</code>（见第四节行号）。</p>
+  <p><code>tokens.json</code> 结构<strong>完全不变</strong>：<code>{ "&lt;token&gt;": "&lt;userId&gt;" }</code>。登录成功后把新 token 写进它，复用现有 <code>resolveUser</code> 解析链路，<span class="ok">无需改动 token 解析逻辑</span>。</p>
+  <div class="card">
+    <strong>兼容性：</strong>只有 name、没有 password 的“老用户”（纯 token 用户）依旧只能用手动粘贴 token 的方式使用；
+    只有设了 <code>username + password</code> 的账号才支持用户名登录。两种方式并存，互不干扰。
+  </div>
+</section>
+
+<section>
+  <h2>三、架构：可替换的凭证校验</h2>
+  <p>登录端点<strong>不直接</strong>读文件，而是调用一个抽象的 <code>CredentialVerifier</code>。默认实现是文件式，未来接 LDAP / 既有用户库 / OIDC 时，只需实现同一接口并 <code>setCredentialVerifier(...)</code>，<strong>登录端点零改动</strong>。</p>
+  <pre><code>// src/auth.ts
+export interface CredentialVerifier {
+  verify(username: string, password: string): Promise&lt;string | null&gt;; // 返回 userId 或 null
+}
+export const fileBasedVerifier: CredentialVerifier = {
+  verify: (u, p) =&gt; Promise.resolve(fileVerifyCredentials(u, p)),
+};
+let active = fileBasedVerifier;
+export const setCredentialVerifier = (v) =&gt; { active = v; };
+export const getCredentialVerifier = () =&gt; active;</code></pre>
+  <p class="ref">接口定义：<code>src/auth.ts:13</code>。登录端点使用：<code>src/api/server.ts</code> 中 <code>getCredentialVerifier().verify(...)</code>。</p>
+</section>
+
+<section>
+  <h2>四、关键代码位置（行号可对照）</h2>
+  <table>
+    <tr><th>职责</th><th>位置</th></tr>
+    <tr><td>密码哈希（scrypt + 随机 salt）</td><td><code>src/settings.ts:224</code> <code>hashPassword</code></td></tr>
+    <tr><td>密码校验（timingSafeEqual 常量时间）</td><td><code>src/settings.ts:231</code> <code>verifyPassword</code></td></tr>
+    <tr><td>按用户名反查 userId（遍历 users 目录）</td><td><code>src/settings.ts:245</code> <code>findUserByUsername</code></td></tr>
+    <tr><td>文件式凭证校验（组合上面两者）</td><td><code>src/settings.ts:268</code> <code>fileVerifyCredentials</code></td></tr>
+    <tr><td>登录成功后签发 token（写 tokens.json）</td><td><code>src/settings.ts:278</code> <code>issueToken</code></td></tr>
+    <tr><td>可替换校验接口定义</td><td><code>src/auth.ts:13</code> <code>CredentialVerifier</code></td></tr>
+    <tr><td>登录路由设为公开</td><td><code>src/api/server.ts:138</code> <code>isPublicRoute</code></td></tr>
+    <tr><td><code>POST /api/auth/login</code> 处理</td><td><code>src/api/server.ts:222</code></td></tr>
+    <tr><td><code>POST /api/auth/logout</code> 处理</td><td><code>src/api/server.ts:253</code></td></tr>
+    <tr><td>登录限流阈值（5 次/分钟/IP）</td><td><code>src/api/server.ts:144</code> <code>LOGIN_RATE_LIMIT</code></td></tr>
+    <tr><td>前端登录/退出逻辑</td><td><code>src/web/app.js:761</code>、<code>:806</code></td></tr>
+    <tr><td>CLI 建账号 / 改密码</td><td><code>src/cli/qmd.ts:3191</code>、<code>:3157</code></td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>五、登录时序</h2>
+  <div class="mermaid">
+sequenceDiagram
+  participant C as 前端/客户端
+  participant S as API (server.ts)
+  participant A as auth.getCredentialVerifier()
+  participant F as settings.fileVerifyCredentials
+  C->>S: POST /api/auth/login {username,password}
+  S->>S: 限流检查（per-IP 5次/分钟）
+  alt 超限
+    S-->>C: 429 Too Many Requests
+  else 正常
+    S->>A: verify(username, password)
+    A->>F: findUserByUsername + verifyPassword(scrypt)
+    alt 校验失败
+      F-->>A: null
+      S->>S: recordLoginFailure + 失败日志
+      S-->>C: 401 统一错误（不区分用户是否存在）
+    else 校验成功
+      F-->>A: userId
+      S->>S: issueToken(userId) 写入 tokens.json
+      S-->>C: 200 {token, userId, name}
+    end
+  end
+  </div>
+</section>
+
+<section>
+  <h2>六、使用方式</h2>
+
+  <h3>1) CLI 创建可登录账号</h3>
+  <pre><code># 交互式输入密码（推荐，密码不进 shell 历史）
+qmd user add "Alice" --username alice
+
+# 一条命令带密码（会进进程参数/历史，生产慎用）
+qmd user add "Alice" --username alice --password 'S3cret!'
+
+# 给已有（无密码）用户补设密码
+qmd user set-password alice
+qmd user set-password alice --password 'NewPass1'
+
+# 列出 / 吊销（token 体系，原有能力）
+qmd user list
+qmd user revoke &lt;token&gt;</code></pre>
+  <p class="ref">密码留空时走交互式 <code>readline</code> 输入到 stderr；<code>createUser</code> 会校验用户名唯一性，重复会抛 <code>用户名已存在</code>。</p>
+
+  <h3>2) API 直接调用</h3>
+  <pre><code># 登录
+curl -s -X POST http://localhost:8787/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"S3cret!"}'
+# => {"token":"<hex>","userId":"...","name":"Alice","username":"alice"}
+
+# 用返回的 token 访问受保护接口
+curl -s http://localhost:8787/api/config -H "Authorization: Bearer <token>"
+
+# 退出登录（吊销当前 token）
+curl -s -X POST http://localhost:8787/api/auth/logout \
+  -H "Authorization: Bearer <token>"
+# => {"ok":true}</code></pre>
+
+  <h3>3) 前端</h3>
+  <ul>
+    <li>无 <code>localStorage.qmd_token</code> 时自动弹出登录卡片；登录成功后存 token 并进入主界面。</li>
+    <li>顶栏新增「退出登录」按钮：调 <code>/api/auth/logout</code> 并清 localStorage。</li>
+    <li>「配置」面板<strong>保留</strong>手动粘贴 token 入口，兼容 CLI/管理员 token。</li>
+    <li>若请求返回 401（token 失效/无权限），前端自动回到登录态。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>七、安全要点</h2>
+  <div class="card">
+    <ul>
+      <li><strong>密码哈希：</strong><code>scrypt</code> + 每账号随机 16 字节 salt，存储 <code>scrypt$salt$hash</code>；校验用 <code>crypto.timingSafeEqual</code> 防时序侧信道。</li>
+      <li><strong>防爆破：</strong>登录接口 per-IP 滑动窗口限流（默认 5 次/分钟，超过返回 429）。</li>
+      <li><strong>防用户枚举：</strong>用户名不存在 / 密码错误统一返回 <code>401 {"error":"用户名或密码错误"}</code>，不暴露差异。</li>
+      <li><strong>失败日志：</strong>每次失败在 stderr 打印 <code>[auth] login failed ip=... user=... 时间</code>，便于后续接告警。</li>
+      <li><strong>退出登录：</strong>服务端吊销 token（从 <code>tokens.json</code> 删除），前端清 localStorage。</li>
+      <li><strong>匿名访问开关：</strong>默认要求鉴权；仅 <code>QMD_ALLOW_ANONYMOUS=true</code> 才放行无 token 访问（<code>src/api/server.ts:114</code>），用于本地开发。</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>八、踩坑与经验（实现记录）</h2>
+  <div class="card">
+    <h3 style="color:#fbbf24">1. <code>noUncheckedIndexedAccess</code> 下 <code>split</code> 结果索引为 <code>string | undefined</code></h3>
+    <p><code>storedHash.split("$")[1]</code> 在严格索引检查下是 <code>string | undefined</code>，直接 <code>Buffer.from(parts[1], "hex")</code> 会报类型错。
+    修正：先解构到具名变量并做空值判断 <code>if (!saltHex || !expectedHex) return false;</code> 再 <code>Buffer.from</code>。
+    （<code>src/settings.ts:231</code> 的 <code>verifyPassword</code>）</p>
+
+    <h3 style="color:#fbbf24">2. <code>readline/promises</code> 的 <code>question</code> 返回 Promise，不能用回调</h3>
+    <p>Node 的 <code>readline/promises</code> 里 <code>rl.question(q)</code> 直接返回 <code>Promise&lt;string&gt;</code>，<strong>没有</strong>回调形态。
+    最初写成 <code>rl.question("", (ans)=>resolve(ans))</code> 被 TS 报错（类型不匹配 <code>Abortable</code>）。
+    修正：封装 <code>promptPassword()</code> 用 <code>await rl.question(prompt)</code>，并在 <code>finally</code> 中 <code>rl.close()</code>。
+    （<code>src/cli/qmd.ts</code>）</p>
+
+    <h3 style="color:#fbbf24">3. <code>createUser</code> 用户名唯一性在写文件前校验</h3>
+    <p><code>findUserByUsername</code> 遍历 <code>users/</code> 目录。由于新建用户的文件在唯一性检查<em>之后</em>才写入，不会误判自己；
+    但重复用户名会抛 <code>用户名已存在</code>，CLI 需 <code>try/catch</code> 友好提示（已处理）。</p>
+
+    <h3 style="color:#fbbf24">4. 自测要清理测试数据</h3>
+    <p>测试在真实 <code>~/.config/qmd</code> 下创建用户/ token。初版因脚本断言失败在 <code>cleanup</code> 前中断，
+    遗留了一个 "alice" 测试账号，导致重跑时 <code>createUser</code> 触发“用户名已存在”而误以为逻辑出错。
+    经验：<strong>清理逻辑放进 <code>finally</code></strong>，并用随机化用户名（<code>authtest_xxxx</code>）避免碰撞。</p>
+
+    <h3 style="color:#fbbf24">5. 端到端测试需显式 <code>dbPath</code></h3>
+    <p><code>startApiServer</code> 不允许隐式落到全局索引库（会抛 <code>Database path not set</code>）。
+    测试时给一个 <code>os.tmpdir()</code> 下的临时 sqlite 路径即可。</p>
+  </div>
+</section>
+
+<section>
+  <h2>九、预留：对接你方已有身份库</h2>
+  <p>只需新建一个实现了 <code>CredentialVerifier</code> 的对象，再在启动 API 前调用 <code>setCredentialVerifier(...)</code>，
+  或后续按环境变量切换默认实现。登录端点、限流、失败日志、<code>issueToken</code> 这套流程<strong>全部复用</strong>，无需改 server 代码。</p>
+  <pre><code>import { setCredentialVerifier } from "./auth.js";
+setCredentialVerifier({
+  verify: async (username, password) =&gt; {
+    // 调用你们既有用户库 / LDAP / OIDC ...
+    return externalUserIdOrNull;
+  },
+});</code></pre>
+  <p class="ref">注意：对接外部库时，登录成功后的 <code>userId</code> 应映射到 QMD 侧的 <code>users/&lt;id&gt;.json</code>（用于 settings 隔离），
+  可为外部用户预建/绑定一个 QMD userId。</p>
+</section>
+
+</main>
+<script>mermaid.initialize({ startOnLoad: true, theme: "dark" });</script>
+</body>
+</html>

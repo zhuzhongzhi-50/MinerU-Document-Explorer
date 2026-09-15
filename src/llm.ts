@@ -17,6 +17,7 @@ import {
 import { availableParallelism, homedir } from "os";
 import { join } from "path";
 import { existsSync, mkdirSync, statSync, unlinkSync, readdirSync, readFileSync, writeFileSync } from "fs";
+import { getSettings } from "./settings.js";
 
 // =============================================================================
 // Embedding Formatting Functions
@@ -375,7 +376,7 @@ export type LlamaCppConfig = {
    */
   expandContextSize?: number;
   /**
-   * Inactivity timeout in ms before unloading contexts (default: 2 minutes, 0 to disable).
+   * Inactivity timeout in ms before unloading contexts (default: 0 = disabled, models/contexts stay resident).
    *
    * Per node-llama-cpp lifecycle guidance, we prefer keeping models loaded and only disposing
    * contexts when idle, since contexts (and their sequences) are the heavy per-session objects.
@@ -394,8 +395,24 @@ export type LlamaCppConfig = {
 /**
  * LLM implementation using node-llama-cpp
  */
-// Default inactivity timeout: 5 minutes (keep models warm during typical search sessions)
-const DEFAULT_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * Default inactivity timeout before unloading idle contexts.
+ *
+ * Default: 0 = disabled — once models and their contexts are loaded they stay
+ * resident in memory forever (no repeat load latency, no automatic unload).
+ * Set a positive value (ms) to re-enable auto-unload of idle contexts.
+ *
+ * Override without code changes via the QMD_INACTIVITY_TIMEOUT_MS env var
+ * (e.g. QMD_INACTIVITY_TIMEOUT_MS=300000 to unload after 5 min idle).
+ */
+function resolveInactivityTimeoutMs(): number {
+  const raw = process.env.QMD_INACTIVITY_TIMEOUT_MS?.trim();
+  if (!raw) return 0;
+  const v = Number(raw);
+  if (!Number.isFinite(v) || v < 0) return 0;
+  return Math.floor(v);
+}
+const DEFAULT_INACTIVITY_TIMEOUT_MS = resolveInactivityTimeoutMs();
 const DEFAULT_EXPAND_CONTEXT_SIZE = 2048;
 
 function resolveExpandContextSize(configValue?: number): number {
@@ -795,6 +812,19 @@ export class LlamaCpp implements LLM {
    * Load generation model (lazy) - context is created fresh per call
    */
   private async ensureGenerateModel(): Promise<LlamaModel> {
+    // Expansion/generation model URI is runtime-configurable via settings.queryExpansionModel.
+    // The LlamaCpp instance is a long-lived singleton, so re-read on each (re)load: this lets a
+    // model change made through the UI/API take effect instead of being ignored (the bug where
+    // the "查询扩展模型" config field did nothing).
+    const desiredUri = getSettings().queryExpansionModel || DEFAULT_GENERATE_MODEL;
+    if (desiredUri !== this.generateModelUri) {
+      this.generateModelUri = desiredUri;
+      if (this.generateModel) {
+        try { await this.generateModel.dispose(); } catch { /* ignore */ }
+        this.generateModel = null;
+        this.generateModelLoadPromise = null;
+      }
+    }
     if (!this.generateModel) {
       if (this.generateModelLoadPromise) {
         return await this.generateModelLoadPromise;
