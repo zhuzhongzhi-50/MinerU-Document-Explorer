@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>运营类合同审查流程说明（A4 打印版）</title>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --sub: #555;
+    --line: #d0d7de;
+    --accent: #0b5394;
+    --accent-bg: #eaf2fb;
+    --code-bg: #f6f8fa;
+    --warn: #9c2706;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", system-ui, sans-serif;
+    color: var(--ink);
+    font-size: 10.5pt;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+  @page {
+    size: A4;
+    margin: 18mm 16mm 16mm 16mm;
+  }
+  /* Screen vs print */
+  .page { padding: 0; }
+
+  h1 { font-size: 20pt; margin: 0 0 4px; }
+  h2 {
+    font-size: 14pt; margin: 22px 0 8px; padding: 6px 10px;
+    background: var(--accent-bg); border-left: 4px solid var(--accent);
+    page-break-after: avoid;
+  }
+  h3 { font-size: 11.5pt; margin: 14px 0 6px; color: var(--accent); page-break-after: avoid; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  code, .mono { font-family: "Cascadia Code", "Consolas", "Courier New", monospace; font-size: 9pt; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px;
+    padding: 10px 12px; overflow-x: auto; font-size: 8.6pt; line-height: 1.45;
+    page-break-inside: avoid;
+  }
+  pre code { font-family: inherit; }
+  .doc-meta {
+    color: var(--sub); font-size: 9.5pt; border-bottom: 1px solid var(--line);
+    padding-bottom: 10px; margin-bottom: 4px;
+  }
+  .callout {
+    border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    background: #fbfcfe; padding: 8px 12px; border-radius: 4px; margin: 10px 0;
+    page-break-inside: avoid;
+  }
+  .warn { border-left-color: var(--warn); background: #fff6f3; }
+  .kv { display: flex; gap: 8px; margin: 3px 0; }
+  .kv b { min-width: 92px; color: var(--sub); font-weight: 600; }
+
+  /* Architecture diagram */
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin: 10px 0; }
+  .node {
+    border: 1px solid var(--accent); background: var(--accent-bg); border-radius: 6px;
+    padding: 8px 10px; min-width: 110px; flex: 1 1 110px; text-align: center; font-size: 9pt;
+  }
+  .node small { display: block; color: var(--sub); font-size: 8pt; margin-top: 2px; }
+  .arrow { align-self: center; color: var(--accent); font-weight: 700; font-size: 14pt; }
+  .lane { border-top: 2px dashed var(--line); margin: 14px 0 4px; padding-top: 6px; color: var(--sub); font-size: 9pt; }
+
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 9pt; page-break-inside: auto; }
+  th, td { border: 1px solid var(--line); padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: var(--accent-bg); }
+  tr { page-break-inside: avoid; }
+
+  .toc { columns: 2; column-gap: 24px; font-size: 9.5pt; }
+  .toc a { color: var(--ink); text-decoration: none; }
+  .toc li { margin: 2px 0; }
+
+  .cover { text-align: center; padding: 40px 0 10px; }
+  .cover .tag { color: var(--accent); font-size: 11pt; letter-spacing: 2px; }
+  .cover h1 { font-size: 26pt; margin-top: 10px; }
+  .cover .sub { color: var(--sub); margin-top: 8px; font-size: 11pt; }
+  .footer-note { color: var(--sub); font-size: 8.5pt; border-top: 1px solid var(--line); margin-top: 18px; padding-top: 8px; }
+
+  @media print {
+    h2 { page-break-before: auto; }
+    .no-print { display: none; }
+    a[href] { color: var(--ink); }
+  }
+  @media screen {
+    body { background: #f0f2f5; padding: 24px 0; }
+    .page { background: #fff; max-width: 794px; margin: 0 auto; padding: 26px 30px; box-shadow: 0 2px 12px rgba(0,0,0,.12); }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="cover">
+    <div class="tag">QMD · 运营知识库 + 合同审查</div>
+    <h1>运营类合同风险审查流程说明</h1>
+    <div class="sub">从源文件到知识库（wiki），从风险清单到逐条带制度依据的审查报告</div>
+  </div>
+  <div class="doc-meta">
+    <div class="kv"><b>文档版本</b><span>1.0　（配套规则集 v1.0.0）</span></div>
+    <div class="kv"><b>适用范围</b><span>委托运营 / 能源托管 / 供热运维 / 运营类合同的风险审查</span></div>
+    <div class="kv"><b>运行环境</b><span>Bun 1.4+ · SQLite（默认索引库 index.sqlite）· 本地 LLM（对话/嵌入/重排）</span></div>
+    <div class="kv"><b>实测样例</b><span>济南高新区空港新城幼儿园供热运维服务合同（15 年固定单价 26.7 元/㎡）</span></div>
+  </div>
+
+  <h2>目录</h2>
+  <ol class="toc">
+    <li><a href="#s1">一、概述与适用范围</a></li>
+    <li><a href="#s2">二、总体架构与数据流向</a></li>
+    <li><a href="#s3">三、前置准备</a></li>
+    <li><a href="#s4">四、阶段一：构建运营知识库（wiki）</a></li>
+    <li><a href="#s5">五、阶段二：导入风险规则库</a></li>
+    <li><a href="#s6">六、阶段三：合同审查端到端</a></li>
+    <li><a href="#s7">七、阶段四：报告解读与 wiki 依据呈现</a></li>
+    <li><a href="#s8">八、命令速查表</a></li>
+    <li><a href="#s9">九、常见问题排查</a></li>
+    <li><a href="#s10">十、文件与数据落库清单</a></li>
+  </ol>
+
+  <h2 id="s1">一、概述与适用范围</h2>
+  <p>本流程把“制度/模板知识”与“合同审查”打通：先由运营制度文件、风险清单、合同样例沉淀为结构化 <b>知识库（wiki）</b>，再在合同审查时，对每一条风险规则<b>同时检索合同条款与 wiki 制度依据</b>，最终输出的报告里<b>逐条标注本条风险所引用的 wiki 页面</b>，做到“风险可追溯、建议有出处”。</p>
+  <div class="callout">
+    <b>核心价值：</b>过去审查只给结论；现在每条发现都附带「制度/模板依据（来自运营知识库 wiki）：×××、×××」，审查意见可直接对应到《运营类风险要素清单》《运营项目风险地图》等制度原文，便于合规复核与谈判交底。
+  </div>
+
+  <h2 id="s2">二、总体架构与数据流向</h2>
+  <div class="flow">
+    <div class="node">源文件<small>制度 PDF/Word/Excel、合同样例</small></div>
+    <div class="arrow">→</div>
+    <div class="node">解析入库<small>写入 yunyingwiki 集合</small></div>
+    <div class="arrow">→</div>
+    <div class="node">向量化 + 索引<small>embed / index-gen</small></div>
+    <div class="arrow">→</div>
+    <div class="node">运营知识库<small>17 页 wiki（概念/手册/清单）</small></div>
+  </div>
+  <div class="lane">① 知识库构建主线</div>
+
+  <div class="flow">
+    <div class="node">风险清单 xlsx<small>6 大类 / 44 项</small></div>
+    <div class="arrow">→</div>
+    <div class="node">规则种子<small>risk-rules-seed.ts</small></div>
+    <div class="arrow">→</div>
+    <div class="node">风险规则库<small>risk_rules 表（44 条）</small></div>
+  </div>
+  <div class="lane">② 风险规则库构建</div>
+
+  <div class="flow">
+    <div class="node">待审合同<small>审查集合（如 kindergarten-heating）</small></div>
+    <div class="arrow">→</div>
+    <div class="node">reviewContract<small>逐条检索 + LLM 评审</small></div>
+    <div class="arrow">→</div>
+    <div class="node">分析报告<small>逐条带 wiki 依据</small></div>
+    <div class="arrow">→</div>
+    <div class="node">落库<small>analysis_records / reports/</small></div>
+  </div>
+  <div class="lane">③ 审查执行（关键：每条规则同时检索“合同片段”与“wiki 依据”，wikiRefs 进入报告）</div>
+
+  <h2 id="s3">三、前置准备</h2>
+  <h3>3.1 运行环境</h3>
+  <ul>
+    <li>运行时：<span class="mono">bun</span>（≥1.4）或 node ≥18。</li>
+    <li>数据库：默认索引库 <span class="mono">~/.cache/qmd/index.sqlite</span>（生产模式自动定位，测试需设 <span class="mono">INDEX_PATH</span>）。</li>
+    <li>集合划分：<span class="mono">yunying</span>（原始源文件，type=raw）、<span class="mono">yunyingwiki</span>（知识库，type=wiki）。</li>
+  </ul>
+  <h3>3.2 LLM / 嵌入 / 重排模型</h3>
+  <ul>
+    <li>对话模型：用于“项目信息抽取 + 逐条风险评审 + 总体评价”（<span class="mono">chatComplete</span>）。</li>
+    <li>嵌入模型：向量化 wiki 与合同，供 <span class="mono">hybridQuery</span> 召回。</li>
+    <li>重排模型（可选）：rerank 阶段对候选精排。</li>
+  </ul>
+  <div class="callout warn"><b>注意：</b>必须先在 QMD 设置中配置可用的对话模型端点（baseUrl / model）。未配置时，检索与报告撰写逻辑仍可用，但 LLM 评审会失败，每条发现会回退为“error/建议补充”，<b>wiki 依据仍会正常生成</b>。</div>
+
+  <h2 id="s4">四、阶段一：构建运营知识库（wiki）</h2>
+  <p>知识库由制度原文与合同样例经解析、写入、向量化、索引生成、质量检查五个步骤形成。当前 <span class="mono">yunyingwiki</span> 共 17 个页面，含概念页（如《运营类项目风险地图》《委托运营（能源托管）类合同审查要点》）、手册/办法摘要、风险清单摘要、合同样例等。</p>
+
+  <h3>4.1 写入 wiki 页面（程序化 API，已验证）</h3>
+  <pre><code>import { createStore, getDefaultDbPath, enableProductionMode } from "./src/store.js";
+import { generateWikiIndex } from "./src/wiki/index-gen.js";
+import { lintWiki } from "./src/wiki/lint.js";
+
+enableProductionMode();
+const store = createStore(getDefaultDbPath());
+const db = store.db;
+
+// 1) 写一页：frontmatter(title/type/sources) + 正文（支持 [[wikilink]]）
+const fm = `---\ntitle: 委托运营（能源托管）类合同审查要点\ntype: concept\nsources:\n  - yunying/济南高新区空港新城幼儿园-临港小镇幼儿园.docx\n---\n\n# 委托运营（能源托管）类合同审查要点\n...正文，可引用 [[concepts/运营风险地图]] ...`;
+await store.writeDocument("yunyingwiki", "concepts/审查要点.md", fm, "委托运营（能源托管）类合同审查要点");
+
+// 2) 重新生成索引页
+const idx = generateWikiIndex(db, { collection: "yunyingwiki" });
+await store.writeDocument("yunyingwiki", "index.md", idx.markdown, "运营 Wiki 索引");
+
+// 3) 向量化（force 全量重算）
+await store.embed({ collections: ["yunyingwiki"], force: true });
+
+// 4) 质量检查：孤儿页 / 断链 / 源过期
+const r = lintWiki(db, { collection: "yunyingwiki", stale_days: 30 });
+console.log(r.orphan_pages, r.broken_links, r.suggestions);</code></pre>
+
+  <h3>4.2 也可用 CLI / MCP</h3>
+  <ul>
+    <li>CLI：<span class="mono">qmd collection add &lt;文件夹&gt; &lt;名称&gt; --wiki</span> 注册 wiki 集合，再 <span class="mono">qmd index</span> 与 <span class="mono">qmd embed</span>。</li>
+    <li>MCP 工具：<span class="mono">wiki_write_document</span> / <span class="mono">wiki_lint</span> 等。</li>
+  </ul>
+
+  <h3>4.3 质量门禁（wiki_lint）</h3>
+  <table>
+    <tr><th>检查项</th><th>含义</th><th>处理</th></tr>
+    <tr><td>orphan_pages</td><td>无任何入链/出链的孤立页</td><td>补充 wikilink 或从 index 链接</td></tr>
+    <tr><td>broken_links</td><td>指向不存在页面的链接</td><td>修正路径或新建目标页</td></tr>
+    <tr><td>stale_sources</td><td>源文件改动后未同步的页面</td><td>重新生成该页</td></tr>
+  </table>
+  <p class="footer-note">实测：17 页 wiki，orphan=[]、broken=[]、suggestions=[]，质量门禁通过。</p>
+
+  <h2 id="s5">五、阶段二：导入风险规则库</h2>
+  <p>风险规则来自《中建八局二公司运营类风险要素清单》，经 xlsx 解析生成种子文件后导入。</p>
+  <pre><code># 1) xlsx -> 种子（一次性生成 src/contract-review/risk-rules-seed.ts）
+bun scripts/build-risk-seed.ts
+
+# 2) 导入（幂等，覆盖 source+ruleset_version 旧数据）
+importRiskRules(db);   // 44 条，enabled=1</code></pre>
+  <table>
+    <tr><th>大类</th><th>项数</th><th>说明</th></tr>
+    <tr><td>项目准入风险</td><td>10</td><td>业主资信、资质、采购程序、权属、决策程序等</td></tr>
+    <tr><td>建设与改造期风险</td><td>5</td><td>工期、审批、成本超支、环境、验收标准</td></tr>
+    <tr><td>运营收益与收入风险</td><td>6</td><td>价格锁定、支付延迟、保底、衍生权益、回报测算</td></tr>
+    <tr><td>合同终止与资产处置风险</td><td>10</td><td>考核主观化、维保扩大、安责、终止补偿、移交</td></tr>
+    <tr><td>联合体模式专项风险</td><td>9</td><td>仅当合同为联合体时触发</td></tr>
+    <tr><td>全周期风险</td><td>4</td><td>不可抗力、发票税务、数据安全、续约</td></tr>
+  </table>
+
+  <h2 id="s6">六、阶段三：合同审查端到端</h2>
+  <p>入口函数 <span class="mono">reviewContract(store, opts)</span>，opts 含 <span class="mono">collection</span>（或 <span class="mono">path</span> 指定单份合同）、<span class="mono">tags</span>、<span class="mono">reportDir</span>。</p>
+  <h3>6.1 建立专用审查集合（避免检索串味）</h3>
+  <pre><code>// 把待审合同挂到独立集合（复用已有 content hash，不重复入库）
+INSERT OR IGNORE INTO store_collections (name, path, pattern, type, include_by_default)
+  VALUES ('kindergarten-heating', './kindergarten-heating', '**/*', 'contract', 1);
+INSERT OR IGNORE INTO documents (collection, path, title, hash, created_at, modified_at, active)
+  VALUES ('kindergarten-heating', '&lt;合同文件名&gt;', '&lt;标题&gt;', '&lt;合同hash&gt;', datetime('now'), datetime('now'), 1);</code></pre>
+
+  <h3>6.2 reviewContract 执行流程</h3>
+  <ol>
+    <li><b>项目信息抽取</b>：LLM 从合同正文抽取项目名称、主体、期限、模式、投资/收益、退出、违约、争议等条目。</li>
+    <li><b>逐条检索 + 评审</b>（核心）：对 44 条规则各执行一次 <span class="mono">retrieveForRule</span>：
+      <ul>
+        <li>用 <span class="mono">rule.name + rule.description</span> 在<b>合同集合</b>检索相关条款片段；</li>
+        <li>同时在 <b>yunyingwiki</b> 检索制度依据，返回命中的 wiki 页面标题列表 <span class="mono">wikiRefs</span>；</li>
+        <li>把“合同片段 + wiki 依据 + 命中的 wiki 页面清单”拼成 prompt，交由 LLM 判定 triggered/not_found、摘录、解析、等级、建议。</li>
+      </ul>
+    </li>
+    <li><b>总体评价</b>：LLM 汇总 TOP5 风险、底线条款、谈判优先级、内部审批提示。</li>
+    <li><b>报告撰写 + 落库</b>：<span class="mono">composeReport</span> 生成 Markdown，写入 <span class="mono">reports/</span> 并登记 <span class="mono">analysis_records</span>。</li>
+  </ol>
+  <div class="callout">
+    <b>wiki 依据如何进入报告（代码链路）：</b>
+    <span class="mono">retrieveForRule()</span> 返回 <span class="mono">{ retrieved, kbRetrieved, wikiRefs }</span>
+    → 写入 <span class="mono">RuleFinding.wikiRefs</span>
+    → <span class="mono">composeReport()</span> 在每条发现末追加一行
+    <span class="mono">- 制度/模板依据（来自运营知识库 wiki）：&lt;wikiRefs 标题以“、”连接&gt;</span>。
+  </div>
+
+  <h3>6.3 一键运行脚本</h3>
+  <pre><code>bun scripts/run-review-kindergarten.ts</code></pre>
+
+  <h2 id="s7">七、阶段四：报告解读与 wiki 依据呈现</h2>
+  <p>报告分三大部分：①项目基本信息；②对照风险清单逐项评审（每条含“合同映射/原文摘录/解析/等级/建议/<b>制度依据</b>”）；③总体评价与谈判优先级。</p>
+
+  <h3>7.1 真实运行结果（幼儿园供热合同）</h3>
+  <table>
+    <tr><th>指标</th><th>数值</th></tr>
+    <tr><td>审查合同</td><td>济南高新区空港新城幼儿园供热运维服务合同（docid 8a4c23）</td></tr>
+    <tr><td>规则覆盖</td><td>44 / 44 条均完成评审</td></tr>
+    <tr><td>带 wiki 依据的发现</td><td><b>44 / 44（100%）</b></td></tr>
+    <tr><td>触发风险</td><td>7 条（OPS-013/016/017/022/024/041/042）</td></tr>
+    <tr><td>报告落盘</td><td>reports-kindergarten/8a4c23-*.md</td></tr>
+  </table>
+
+  <h3>7.2 wiki 依据在报告中的实际呈现（节选自 OPS-016 价格与成本锁定风险）</h3>
+  <pre><code>16. 第16项｜价格与成本锁定风险（OPS-016）
+   - 合同映射情况：已触发
+   - 风险条款原文摘录：3.1 本项目运营期限为15年……4.1 供暖单价为 26.7 元/㎡……
+   - 风险解析：合同第3.1款约定运营期限为15年，第4.1款约定供暖单价固定为26.7元/㎡……
+                        长期固定单价且缺乏调价机制，使成本上涨风险主要由乙方承担，触发价格与成本锁定风险。
+   - 风险等级：高
+   - 修改建议：建议将第4.1款“供暖单价为26.7元/㎡”修改为“基准供暖单价为26.7元/㎡，并按下列调价机制调整”：
+                        ① CPI/能源价格累计变化超±5%时单价按公式自动调整；② 电价/税收优惠取消同步触发调价；
+                        ③ 协商不成由当地发改委核定；④ 政策变更致项目无意义时乙方有权退出并收回投资。
+   - 制度/模板依据（来自运营知识库 wiki）：济南高新区空港新城幼儿园供热运维服务合同（样例）、
+                        运营类项目风险地图、《中建八局二公司运营类风险要素清单》摘要（司函字〔2026〕63号）、
+                        委托运营（能源托管）类合同审查要点</code></pre>
+  <div class="callout">可以看到：即使 LLM 判为“已触发/高”，其修改建议也与 wiki 中《风险地图》《委托运营审查要点》的“价格与成本锁定 / 调价机制”要求一一对应，审查意见因此<b>可追溯到具体制度页面</b>。</div>
+
+  <h3>7.3 数据落库</h3>
+  <ul>
+    <li><span class="mono">analysis_records</span>：每次审查一条记录（docid、ruleset_version、report_path、summary_json）。</li>
+    <li><span class="mono">contract_meta</span>：合同元信息（标题、集合、标签）。</li>
+    <li><span class="mono">reports/</span> 目录：Markdown 报告文件，便于归档与二次加工。</li>
+  </ul>
+
+  <h2 id="s8">八、命令速查表</h2>
+  <table>
+    <tr><th>目的</th><th>命令</th></tr>
+    <tr><td>构建/更新 wiki 页面</td><td><span class="mono">store.writeDocument("yunyingwiki", path, fm, title)</span></td></tr>
+    <tr><td>重建 wiki 索引页</td><td><span class="mono">generateWikiIndex(db, { collection:"yunyingwiki" })</span></td></tr>
+    <tr><td>向量化 wiki</td><td><span class="mono">store.embed({ collections:["yunyingwiki"], force:true })</span></td></tr>
+    <tr><td>wiki 质量检查</td><td><span class="mono">lintWiki(db, { collection:"yunyingwiki" })</span></td></tr>
+    <tr><td>生成风险规则种子</td><td><span class="mono">bun scripts/build-risk-seed.ts</span></td></tr>
+    <tr><td>导入风险规则</td><td><span class="mono">importRiskRules(db)</span></td></tr>
+    <tr><td>端到端审查（样例）</td><td><span class="mono">bun scripts/run-review-kindergarten.ts</span></td></tr>
+  </table>
+
+  <h2 id="s9">九、常见问题排查</h2>
+  <table>
+    <tr><th>现象</th><th>原因 / 处理</th></tr>
+    <tr><td>报告里某条没有 wiki 依据</td><td>该条 <span class="mono">wikiRefs</span> 为空，通常是 wiki 未向量化或检索阈值过高；执行 <span class="mono">store.embed</span> 后重跑。</td></tr>
+    <tr><td>所有发现都是“建议补充/error”</td><td>对话模型未配置或不可达；wiki 依据仍会输出，仅 LLM 评审失败。</td></tr>
+    <tr><td>检索串味（混入无关源文件）</td><td>审查集合未隔离；按 6.1 建专用集合只挂待审合同。</td></tr>
+    <tr><td>wiki_lint 报孤儿页</td><td>新页未从 index 或被其它页链接；补充 wikilink 或重建索引。</td></tr>
+    <tr><td>Database path not set</td><td>非生产模式需用 <span class="mono">createStore(显式路径)</span> 或先 <span class="mono">enableProductionMode()</span>。</td></tr>
+  </table>
+
+  <h2 id="s10">十、文件与数据落库清单</h2>
+  <ul>
+    <li><span class="mono">src/contract-review/review.ts</span>：审查编排（含 <span class="mono">retrieveForRule</span>、<span class="mono">reviewContract</span>、<span class="mono">composeReport</span>）。</li>
+    <li><span class="mono">src/contract-review/prompt.ts</span>：<span class="mono">buildRuleEvaluationPrompt</span>（含 wiki 页面清单）、<span class="mono">buildProjectInfoPrompt</span>、<span class="mono">buildOverallPrompt</span>。</li>
+    <li><span class="mono">src/contract-review/db.ts</span>：<span class="mono">importRiskRules</span> / <span class="mono">listRiskRules</span> / 落库函数。</li>
+    <li><span class="mono">src/contract-review/risk-rules-seed.ts</span>：44 条规则种子（自动生成）。</li>
+    <li><span class="mono">scripts/run-review-kindergarten.ts</span>：真实端到端样例脚本。</li>
+    <li><span class="mono">src/wiki/{index-gen,lint}.ts</span>：wiki 索引生成与质量检查。</li>
+    <li>数据库表：<span class="mono">store_collections</span>、<span class="mono">documents</span>、<span class="mono">risk_rules</span>、<span class="mono">analysis_records</span>、<span class="mono">contract_meta</span>、<span class="mono">content</span> / <span class="mono">content_vectors</span>。</li>
+  </ul>
+
+  <div class="footer-note">
+    本文档配套规则集 v1.0.0，基于「济南高新区空港新城幼儿园供热运维服务合同」真实端到端运行结果编写。
+    报告样例：<span class="mono">reports-kindergarten/8a4c23-*.md</span>。
+    打印建议：浏览器打开本文件 → 打印 → 纸张 A4 → 边距默认 → 勾选“背景图形”以保留色块。
+  </div>
+
+</div>
+</body>
+</html>

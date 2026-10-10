@@ -114,6 +114,29 @@ export type PptxExtractionResult = z.infer<typeof PptxExtractionResultSchema>;
 export type PptxSlide = z.infer<typeof PptxSlideSchema>;
 
 // =============================================================================
+// XLSX Extraction Types
+// =============================================================================
+
+/**
+ * Schema for XLSX sheet extraction results (extract_xlsx.py).
+ */
+export const XlsxSheetSchema = z.object({
+  sheet_idx: z.number(),
+  title: z.string().nullable(),
+  text: z.string(),
+  tokens: z.number().nullable(),
+});
+
+export const XlsxExtractionResultSchema = z.object({
+  error: z.string().optional(),
+  markdown: z.string().optional(),
+  sheets: z.array(XlsxSheetSchema).optional(),
+});
+
+export type XlsxExtractionResult = z.infer<typeof XlsxExtractionResultSchema>;
+export type XlsxSheet = z.infer<typeof XlsxSheetSchema>;
+
+// =============================================================================
 // Validation Helpers
 // =============================================================================
 

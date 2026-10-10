@@ -44,6 +44,11 @@ export const QmdSettingsSchema = z.object({
 
   // --- Embedding ---
   embedBatchSize: z.number().int().positive().default(32),
+  // When true (default), writeDocument() auto-runs an incremental embed of the
+  // affected collection so freshly written pages are immediately retrievable.
+  // Turn OFF for high-volume batch wiki writes, then run a single `qmd embed`
+  // (or POST /api/embed) at the end to build all vectors in one pass.
+  autoEmbedOnWrite: z.boolean().default(true),
 
   // --- Answer-generation LLM (RAG synthesis) ---
   // Defaults read env LLM_BASE_URL / LLM_API_KEY / LLM_MODEL; can be overridden

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Extract per-page text + native bookmarks from a PDF using PyMuPDF."""
-import sys, json
+import sys, json, warnings
+
+# PyMuPDF (>=1.24) prints a `fitz` deprecation notice; keep stdout clean so the
+# JSON payload is the only thing the TS layer parses.
+warnings.filterwarnings("ignore")
 
 def main():
     if len(sys.argv) < 2:

@@ -81,6 +81,8 @@ export interface Database {
   prepare(sql: string): Statement;
   loadExtension(path: string): void;
   close(): void;
+  /** Wraps `fn` in an implicit transaction (better-sqlite3 / bun:sqlite both provide this). */
+  transaction<T extends unknown[]>(fn: (...args: T) => unknown): (...args: T) => void;
 }
 
 export interface Statement {

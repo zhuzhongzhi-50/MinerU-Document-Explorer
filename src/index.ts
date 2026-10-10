@@ -81,6 +81,7 @@ import {
   type NamedCollection,
   type ContextMap,
 } from "./collections.js";
+import { getSettings } from "./settings.js";
 import type { DocumentBackend } from "./backends/types.js";
 import { getBackend as getBackendImpl } from "./backends/registry.js";
 
@@ -417,9 +418,11 @@ export async function createStore(options: StoreOptions): Promise<QMDStore> {
         });
       }
 
-      // Simple query string — use hybridQuery (expand + search + rerank)
+      // Simple query string — use hybridQuery (expand + search + rerank).
+      // Pass the whole list so multi-collection scopes (hybrid raw + wiki) are
+      // really searched instead of silently using only the first entry.
       return hybridQuery(internal, opts.query!, {
-        collection: collections[0],
+        collections: collections.length > 0 ? collections : undefined,
         limit: opts.limit,
         minScore: opts.minScore,
         explain: opts.explain,
@@ -464,8 +467,13 @@ export async function createStore(options: StoreOptions): Promise<QMDStore> {
         throw new Error("Invalid path: must be within the collection directory");
       }
 
-      // Validate/normalize path before any FS writes
-      const normalizedPath = handelize(rel);
+      // Validate/normalize path before any FS writes.
+      // `relative()` returns OS-native separators (backslashes on Windows) while
+      // handelize — and every other path consumer (fast-glob, reindexCollection) —
+      // expects POSIX "/". Without this, a nested path like "pages/x.md" is stored
+      // as the flat "pages-x.md" on Windows, so the DB row stops matching the file
+      // on disk and the next reindex registers the same file as a second document.
+      const normalizedPath = handelize(rel.replace(/\\/g, "/"));
       const hash = await hashContent(content);
       const now = new Date().toISOString();
       const docTitle = title ?? extractTitle(content, normalizedPath);
@@ -512,6 +520,21 @@ export async function createStore(options: StoreOptions): Promise<QMDStore> {
       }
 
       internal.clearCache();
+
+      // Auto-embed the affected collection (when enabled) so freshly written
+      // pages (e.g. wiki pages created via doc_write) become immediately
+      // retrievable. Embedding is incremental + idempotent (only unembedded docs
+      // are processed), so repeated writes stay cheap. Failures must not break
+      // the write itself. Disabled via settings.autoEmbedOnWrite=false for
+      // high-volume batch writes (run one `qmd embed` at the end instead).
+      if (getSettings().autoEmbedOnWrite) {
+        try {
+          await generateEmbeddings(internal, { collections: [collection] });
+        } catch {
+          // Embedding model unavailable or failed — the document is still written;
+          // vectors can be built later via `qmd embed` or POST /api/embed.
+        }
+      }
 
       const docid = hash.slice(0, 6);
       return { file: collection + "/" + normalizedPath, docid: "#" + docid };

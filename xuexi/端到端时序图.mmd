@@ -1,0 +1,37 @@
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant UI as Vue 前端
+    participant WS as FastAPI WebSocket
+    participant S as VoiceSession
+    participant ASR as Fun-ASR
+    participant A as LangChain Agent
+    participant T as 网络搜索/业务工具
+    participant TTS as Qwen 双向 TTS
+
+    U->>UI: 点击开始并授权麦克风
+    UI->>WS: 建立 /ws/voice
+    WS->>S: 创建会话并启动服务
+    S-->>UI: session.ready / listening
+    loop 约 100 ms 音频分片
+        UI->>S: 16 kHz PCM16 二进制数据
+        S->>ASR: send_audio_frame
+        ASR-->>S: partial transcript
+        S-->>UI: stt.partial
+    end
+    ASR-->>S: final transcript
+    S-->>UI: stt.final / thinking
+    S->>A: 用户文本 + thread.id
+    opt Agent 判断需要实时信息
+        A->>T: 调用 web_search
+        T-->>A: 搜索摘要和来源链接
+    end
+    loop LLM 文本流
+        A-->>S: agent.delta
+        S-->>UI: 展示回答增量
+        S->>TTS: append_text
+        TTS-->>S: 24 kHz PCM16 音频分片
+        S-->>UI: 二进制音频
+        UI-->>U: 边接收边播放
+    end
+    S-->>UI: agent.finished / tts.finished

@@ -9,7 +9,7 @@
  * Extracted from store.ts.
  */
 
-import type { Store, ExpandedQuery } from "./store.js";
+import type { Store, ExpandedQuery, SearchResult } from "./store.js";
 import { DEFAULT_EMBED_MODEL } from "./store.js";
 import { getDefaultLlamaCpp, formatQueryForEmbedding, type LlamaCpp } from "./llm.js";
 import { chunkDocument } from "./chunking.js";
@@ -69,6 +69,9 @@ export interface SearchHooks {
 
 export interface HybridQueryOptions {
   collection?: string;
+  /** Search several collections at once; each contributes its own ranked list to
+   *  RRF fusion. Takes precedence over `collection` when non-empty. */
+  collections?: string[];
   limit?: number;           // default 10
   minScore?: number;        // default 0
   candidateLimit?: number;  // default RERANK_CANDIDATE_LIMIT
@@ -360,6 +363,14 @@ export async function hybridQuery(
   const skipRerank = options?.skipRerank ?? false;
   const hooks = options?.hooks;
 
+  // Search scope: an explicit `collections` list wins — every collection is
+  // queried and contributes its own ranked list to RRF fusion. Otherwise fall
+  // back to the single `collection` filter (undefined = all collections).
+  const collectionList: (string | undefined)[] =
+    options?.collections && options.collections.length > 0
+      ? options.collections
+      : [collection];
+
   const rankedLists: RankedResult[][] = [];
   const rankedListMeta: RankedListMeta[] = [];
   const docidMap = new Map<string, string>(); // filepath -> docid
@@ -369,10 +380,25 @@ export async function hybridQuery(
   // When intent is provided, disable strong-signal bypass — the obvious BM25
   // match may not be what the caller wants (e.g. "performance" with intent
   // "web page load times" should NOT shortcut to a sports-performance doc).
-  const initialFts = store.searchFTS(query, 20, collection);
-  const topScore = initialFts[0]?.score ?? 0;
-  const secondScore = initialFts[1]?.score ?? 0;
-  const hasStrongSignal = !intent && initialFts.length > 0
+  const initialFtsByCollection: SearchResult[][] = [];
+  const probeResults: SearchResult[] = [];
+  const probeDocids = new Set<string>();
+  for (const coll of collectionList) {
+    const ftsResults = store.searchFTS(query, 20, coll);
+    if (ftsResults.length === 0) continue;
+    initialFtsByCollection.push(ftsResults);
+    for (const r of ftsResults) {
+      // The same content indexed in several collections shares one docid; count
+      // it once so the top-2 margin below isn't defeated by its own duplicate.
+      if (r.docid && probeDocids.has(r.docid)) continue;
+      if (r.docid) probeDocids.add(r.docid);
+      probeResults.push(r);
+    }
+  }
+  probeResults.sort((a, b) => b.score - a.score);
+  const topScore = probeResults[0]?.score ?? 0;
+  const secondScore = probeResults[1]?.score ?? 0;
+  const hasStrongSignal = !intent && probeResults.length > 0
     && topScore >= settings.strongSignalMinScore
     && (topScore - secondScore) >= settings.strongSignalMinGap;
 
@@ -395,9 +421,9 @@ export async function hybridQuery(
   hooks?.onExpand?.(query, expanded, Date.now() - expandStart);
 
   // Seed with initial FTS results (avoid re-running original query FTS)
-  if (initialFts.length > 0) {
-    for (const r of initialFts) docidMap.set(r.filepath, r.docid);
-    rankedLists.push(initialFts.map(r => ({
+  for (const ftsResults of initialFtsByCollection) {
+    for (const r of ftsResults) docidMap.set(r.filepath, r.docid);
+    rankedLists.push(ftsResults.map(r => ({
       file: r.filepath, displayPath: r.displayPath,
       title: r.title, body: r.body || "", score: r.score,
     })));
@@ -408,14 +434,16 @@ export async function hybridQuery(
   // 3a: Run FTS for all lex expansions right away (no LLM needed)
   for (const q of expanded) {
     if (q.type === 'lex') {
-      const ftsResults = store.searchFTS(q.query, 20, collection);
-      if (ftsResults.length > 0) {
-        for (const r of ftsResults) docidMap.set(r.filepath, r.docid);
-        rankedLists.push(ftsResults.map(r => ({
-          file: r.filepath, displayPath: r.displayPath,
-          title: r.title, body: r.body || "", score: r.score,
-        })));
-        rankedListMeta.push({ source: "fts", queryType: "lex", query: q.query });
+      for (const coll of collectionList) {
+        const ftsResults = store.searchFTS(q.query, 20, coll);
+        if (ftsResults.length > 0) {
+          for (const r of ftsResults) docidMap.set(r.filepath, r.docid);
+          rankedLists.push(ftsResults.map(r => ({
+            file: r.filepath, displayPath: r.displayPath,
+            title: r.title, body: r.body || "", score: r.score,
+          })));
+          rankedListMeta.push({ source: "fts", queryType: "lex", query: q.query });
+        }
       }
     }
   }
@@ -444,21 +472,23 @@ export async function hybridQuery(
       const embedding = embeddings[i]?.embedding;
       if (!embedding) continue;
 
-      const vecResults = await store.searchVec(
-        vecQueries[i]!.text, DEFAULT_EMBED_MODEL, 20, collection,
-        undefined, embedding
-      );
-      if (vecResults.length > 0) {
-        for (const r of vecResults) docidMap.set(r.filepath, r.docid);
-        rankedLists.push(vecResults.map(r => ({
-          file: r.filepath, displayPath: r.displayPath,
-          title: r.title, body: r.body || "", score: r.score,
-        })));
-        rankedListMeta.push({
-          source: "vec",
-          queryType: vecQueries[i]!.queryType,
-          query: vecQueries[i]!.text,
-        });
+      for (const coll of collectionList) {
+        const vecResults = await store.searchVec(
+          vecQueries[i]!.text, DEFAULT_EMBED_MODEL, 20, coll,
+          undefined, embedding
+        );
+        if (vecResults.length > 0) {
+          for (const r of vecResults) docidMap.set(r.filepath, r.docid);
+          rankedLists.push(vecResults.map(r => ({
+            file: r.filepath, displayPath: r.displayPath,
+            title: r.title, body: r.body || "", score: r.score,
+          })));
+          rankedListMeta.push({
+            source: "vec",
+            queryType: vecQueries[i]!.queryType,
+            query: vecQueries[i]!.text,
+          });
+        }
       }
     }
   }
@@ -469,7 +499,18 @@ export async function hybridQuery(
   );
   const fused = reciprocalRankFusion(rankedLists, weights);
   const rrfTraceByFile = explain ? buildRrfTrace(rankedLists, weights, rankedListMeta) : null;
-  const candidates = fused.slice(0, candidateLimit);
+  // Multi-collection search can rank the same content once per collection (identical
+  // hash ⇒ identical docid). Drop those duplicates before slicing the candidate pool
+  // so the rerank budget is spent on distinct documents; `fused` is sorted by RRF
+  // score, so the best-ranked occurrence is the one kept.
+  const seenFusedDocids = new Set<string>();
+  const candidates = fused.filter(r => {
+    const docid = docidMap.get(r.file);
+    if (!docid) return true;
+    if (seenFusedDocids.has(docid)) return false;
+    seenFusedDocids.add(docid);
+    return true;
+  }).slice(0, candidateLimit);
 
   if (candidates.length === 0) return [];
 

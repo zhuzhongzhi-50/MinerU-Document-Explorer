@@ -9,7 +9,7 @@ import {
   isWikiCollection,
   listCollections,
 } from "../src/store.js";
-import { initializeSchema } from "../src/db-schema.js";
+import { initializeSchema, SCHEMA_VERSION } from "../src/db-schema.js";
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -223,9 +223,9 @@ describe("collection type - DB migration v2", () => {
     expect(indexNames).toContain("idx_wiki_log_timestamp");
     expect(indexNames).toContain("idx_wiki_log_operation");
 
-    // Verify schema version is now current (3 after adding wiki_sources + wiki_ingest_tracker)
+    // Verify schema version is now current (initializeSchema runs all migrations)
     const version = migDb.prepare(`SELECT MAX(version) as v FROM schema_version`).get() as { v: number };
-    expect(version.v).toBe(3);
+    expect(version.v).toBe(SCHEMA_VERSION);
 
     // Verify v3 tables (wiki_sources, wiki_ingest_tracker)
     const v3Tables = migDb.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN ('wiki_sources', 'wiki_ingest_tracker')`).all() as { name: string }[];

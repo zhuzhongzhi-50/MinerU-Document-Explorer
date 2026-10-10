@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QMD 合同风险审查</title>
+    <link rel="stylesheet" href="/style.css" />
+    <style>
+      body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background: #f5f7fa; color: #1f2933; }
+      .topbar { display:flex; align-items:center; gap:12px; padding:10px 16px; background:#1a73e8; color:#fff; }
+      .topbar a { color:#fff; text-decoration:none; font-weight:600; }
+      .topbar .spacer { flex:1; }
+      .wrap { max-width: 1080px; margin: 18px auto; padding: 0 16px; display:grid; grid-template-columns: 360px 1fr; gap: 18px; }
+      .card { background:#fff; border:1px solid #e3e3e3; border-radius:10px; padding:14px; }
+      h3 { margin: 0 0 10px; font-size:15px; }
+      label { font-size:13px; color:#475467; display:block; margin:10px 0 4px; }
+      select, input[type=text], input[type=file] { width:100%; padding:7px 9px; border:1px solid #cfd4dc; border-radius:7px; font-size:13px; box-sizing:border-box; }
+      .tags { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
+      .tags label { display:flex; align-items:center; gap:5px; margin:0; font-size:13px; color:#1f2933; }
+      .btn { background:#1a73e8; color:#fff; border:none; border-radius:8px; padding:9px 14px; font-size:14px; cursor:pointer; }
+      .btn:disabled { opacity:.5; cursor:default; }
+      .btn.ghost { background:#eef1f5; color:#334155; }
+      .msg { font-size:13px; margin-top:8px; }
+      .err { color:#c0392b; }
+      .ok { color:#3aa757; }
+      .muted { color:#8a94a6; font-size:12px; }
+      #report { background:#fff; border:1px solid #e3e3e3; border-radius:10px; padding:20px 24px; line-height:1.7; overflow:auto; max-height: 80vh; }
+      #report h2 { border-bottom:2px solid #1a73e8; padding-bottom:6px; margin-top:26px; }
+      #report h3 { color:#1a73e8; margin-top:20px; }
+      #report h4 { margin:14px 0 6px; }
+      #report ul { padding-left:20px; margin:6px 0; }
+      #report li { margin:4px 0; }
+      #report p { margin:6px 0; white-space: pre-wrap; }
+      .progress { font-size:13px; color:#475467; margin-top:8px; }
+      .empty { color:#8a94a6; padding:40px; text-align:center; }
+      /* 合同原文面板：点击「定位原文」时从右侧滑出，展示带行号的原文段落 */
+      .contract-panel { position: fixed; top: 0; right: 0; height: 100vh; z-index: 60; box-shadow: -4px 0 18px rgba(0,0,0,.18); }
+      .contract-panel[hidden] { display: none; }
+      .contract-panel-head { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1px solid #e3e3e3; flex-shrink:0; }
+      .contract-panel-head h3 { margin:0; font-size:14px; }
+      .contract-panel-head button { background:none; border:none; font-size:20px; line-height:1; cursor:pointer; color:#475467; }
+      .contract-panel-head button:hover { color:#1a73e8; }
+      .contract-text .ct-no { color:#8a94a6; }
+      .contract-text .ct-flash { background:#fff3bf; box-shadow: inset 3px 0 0 #e0a800; }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="/">← 合同风险审查小助手</a>
+      <span class="spacer"></span>
+      <span id="health" style="font-size:13px;">● 连接中…</span>
+    </header>
+
+    <div class="wrap">
+      <div class="card">
+        <h3>① 上传合同</h3>
+        <label>目标集合（如 contracts）</label>
+        <input id="upColl" type="text" placeholder="contracts" value="contracts" />
+        <label>选择合同文件（PDF / Word / Excel）</label>
+        <input id="upFile" type="file" />
+        <button id="upBtn" class="btn" style="margin-top:10px;" type="button">上传并建索引</button>
+        <div id="upMsg" class="msg"></div>
+
+        <h3 style="margin-top:20px;">② 选择合同</h3>
+        <label>集合</label>
+        <select id="collSel"></select>
+        <label>文档</label>
+        <select id="docSel"></select>
+
+        <h3 style="margin-top:20px;">③ 特殊情形（自动触发附加核查）</h3>
+        <div class="tags">
+          <label><input type="checkbox" value="联合体" /> 联合体</label>
+          <label><input type="checkbox" value="能源" /> 能源类</label>
+          <label><input type="checkbox" value="学校医院" /> 学校/医院</label>
+          <label><input type="checkbox" value="长周期" /> 15年+长周期</label>
+        </div>
+
+        <button id="reviewBtn" class="btn" style="margin-top:18px; width:100%;" type="button">开始风险审查</button>
+        <div id="progress" class="progress"></div>
+        <div id="msg" class="msg"></div>
+        <p class="muted">提示：审查需逐一比对 44 项运营类风险清单，耗时取决于模型与合同条款数量。</p>
+      </div>
+
+      <div>
+        <div id="report" class="empty">审查报告将在此展示。</div>
+      </div>
+    </div>
+
+    <aside class="contract-panel" id="contractPanel" hidden>
+      <div class="contract-panel-head">
+        <h3>合同原文</h3>
+        <button id="contractClose" type="button" title="收起原文面板">×</button>
+      </div>
+      <div class="contract-text" id="contractText"></div>
+    </aside>
+
+    <script src="/contract-review.js"></script>
+  </body>
+</html>

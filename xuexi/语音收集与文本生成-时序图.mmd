@@ -1,0 +1,33 @@
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant UI as Vue 前端
+    participant WS as FastAPI WebSocket
+    participant S as VoiceSession
+    participant ASR as Fun-ASR
+    participant A as LangChain Agent
+    participant KB as 知识库/业务工具
+
+    U->>UI: 点击开始并授权麦克风 / 选择专业生成模板
+    UI->>WS: 建立 /ws/voice
+    WS->>S: 创建会话并加载专业模板 / 知识库
+    S-->>UI: session.ready / listening
+    loop 约 100 ms 音频分片
+        UI->>S: 16 kHz PCM16 二进制数据
+        S->>ASR: send_audio_frame
+        ASR-->>S: partial transcript
+        S-->>UI: stt.partial（实时转写）
+    end
+    ASR-->>S: final transcript
+    S-->>UI: stt.final / thinking（锁定本轮语音）
+    S->>A: 用户文本 + 专业生成指令(thread.id)
+    opt Agent 需检索知识或调用工具
+        A->>KB: 检索 / 调用工具（RAG、模板、Web Search）
+        KB-->>A: 检索结果 / 工具返回
+    end
+    loop LLM 专业文本流
+        A-->>S: agent.delta（专业文本增量）
+        S-->>UI: 展示专业文本增量
+    end
+    S-->>UI: agent.finished（专业文本完成 / 可校对导出）
+    U->>UI: 校对并导出专业文档

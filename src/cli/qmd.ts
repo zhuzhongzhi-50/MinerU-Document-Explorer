@@ -3617,8 +3617,11 @@ if (isMain) {
           mkdirFn(dirnameFn(absPath), { recursive: true });
           writeFn(absPath, content, "utf-8");
 
-          // Index into database
-          const normalizedPath = handelize(rel);
+          // Index into database.
+          // `relative()` yields OS-native separators (backslashes on Windows) while
+          // handelize expects POSIX "/" — otherwise nested paths are flattened and the
+          // DB row stops matching the file on disk.
+          const normalizedPath = handelize(rel.replace(/\\/g, "/"));
           const hash = await hashContent(content);
           const now = new Date().toISOString();
           const title = (cli.values.title as string) || extractTitle(content, normalizedPath);

@@ -262,3 +262,57 @@ export async function extractPptxForIndex(
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// XLSX extractor
+// ---------------------------------------------------------------------------
+
+/** Dependencies for XLSX extraction. */
+export interface XlsxExtractorDeps {
+  extractXlsx: (filepath: string) => Promise<any>;
+  getPythonError: (result: any) => string | null;
+  extractTitle: (content: string, filename: string) => string;
+}
+
+/**
+ * Extract an XLSX/XLS file using openpyxl (via extract_xlsx.py).
+ */
+export async function extractXlsxForIndex(
+  filepath: string,
+  relativeFile: string,
+  deps: XlsxExtractorDeps,
+): Promise<FormatExtraction | null> {
+  let xlsxData: any;
+  try {
+    xlsxData = await deps.extractXlsx(filepath);
+    const error = deps.getPythonError(xlsxData);
+    if (error) return null;
+  } catch {
+    return null;
+  }
+
+  const sheets = (xlsxData.sheets ?? []) as {
+    sheet_idx: number; title?: string; text: string; tokens?: number;
+  }[];
+  const content = (xlsxData.markdown as string)
+    || sheets.map((s) => s.text || '').filter(Boolean).join("\n\n");
+  if (!content.trim()) return null;
+
+  const title = deps.extractTitle(content, relativeFile)
+    || relativeFile.split('/').pop()?.replace(/\.xlsx?$/i, '') || relativeFile;
+
+  return {
+    content,
+    title,
+    writeCache: (db, docid) => {
+      db.prepare("DELETE FROM sheet_cache WHERE docid = ?").run(docid);
+      const insert = db.prepare("INSERT INTO sheet_cache (docid, sheet_idx, title, text, tokens) VALUES (?, ?, ?, ?, ?)");
+      for (const s of sheets) {
+        insert.run(docid, s.sheet_idx, s.title ?? null, s.text ?? '', s.tokens ?? 0);
+      }
+    },
+    cleanupCache: (db, docid) => {
+      db.prepare("DELETE FROM sheet_cache WHERE docid = ?").run(docid);
+    },
+  };
+}

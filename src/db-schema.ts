@@ -10,7 +10,7 @@ import type { Database } from "./db.js";
  * Current schema version.
  * Increment this when making breaking schema changes.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 9;
 
 /**
  * Schema version table name.
@@ -227,7 +227,113 @@ const MIGRATIONS: Record<number, (db: Database) => void> = {
       )
     `);
   },
-};
+
+  4: (db) => {
+    // Version 4: Iterative info-collection (intake) sessions + persistent Q&A records
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS intake_sessions (
+        id TEXT PRIMARY KEY,
+        goal TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS intake_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        refs TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_intake_records_session ON intake_records(session_id, seq)`);
+  },
+
+  5: (db) => {
+    // 表结构与种子已迁移至场景模块 src/contract-review/db-init.ts
+    // （ensureContractReviewSchema 幂等创建 risk_rules / contracts_meta /
+    // analysis_records）。此处仅保留版本占位，避免重新初始化时漏跑版本号。
+  },
+  6: (db) => {
+    // Version 6: Per-user persistent chat (Q&A) history. Sessions are scoped to a
+    // single user via `user_id`; messages store the model, retrieved sources, and
+    // a capped raw-results payload for full traceability on replay.
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id          TEXT PRIMARY KEY,
+        user_id     TEXT NOT NULL,
+        title       TEXT NOT NULL DEFAULT '',
+        collections TEXT NOT NULL DEFAULT '',
+        mode        TEXT NOT NULL DEFAULT 'query',
+        status      TEXT NOT NULL DEFAULT 'active',
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id, updated_at DESC)`
+    );
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id  TEXT NOT NULL,
+        seq         INTEGER NOT NULL,
+        role        TEXT NOT NULL,
+        content     TEXT NOT NULL,
+        model       TEXT,
+        sources     TEXT,
+        raw_results TEXT,
+        tokens_used INTEGER,
+        elapsed_ms  INTEGER,
+        error       TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, seq)`
+    );
+  },
+
+  7: (db) => {
+    // 合同类型维度列已迁移至场景模块 src/contract-review/db-init.ts
+    // （ensureContractReviewSchema 对 contracts_meta 做容错 ALTER）。占位保留。
+  },
+  8: (db) => {
+    // 合同类型主数据 + 多对多关联已迁移至场景模块 src/contract-review/db-init.ts
+    // （ensureContractReviewSchema 幂等创建 contract_types / rule_contract_scope
+    // 并种子化合同类型树）。此处仅保留版本占位。
+  },
+
+  9: (db) => {
+    // Version 9: 场景约束 manifest 注册 / 版本约定（设计 §3.4）。
+    // 仅存头信息 + 不透明 payload_ref；约束内容（规则行 / 模板）留在场景层，
+    // 不进底座语义层（§3.6）。与 src/scenario-manifest.ts 的 ensureScenarioManifestSchema 互补。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS scenario_manifests (
+        manifest_id  TEXT PRIMARY KEY,
+        scenario     TEXT NOT NULL,
+        kind         TEXT NOT NULL,
+        version      TEXT NOT NULL,
+        name         TEXT NOT NULL DEFAULT '',
+        description  TEXT NOT NULL DEFAULT '',
+        status       TEXT NOT NULL DEFAULT 'active',
+        payload_ref  TEXT NOT NULL DEFAULT '',
+        created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_scenario_manifests_scenario_kind ON scenario_manifests(scenario, kind, status)`,
+    );
+  },
+
+}; // MIGRATIONS 对象结束
+
 
 /**
  * Get database statistics for health monitoring.

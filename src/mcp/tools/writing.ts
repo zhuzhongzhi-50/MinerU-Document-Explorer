@@ -23,7 +23,7 @@ export function registerWritingTools(server: McpServer, store: QMDStore): void {
     "doc_write",
     {
       title: "Write Document",
-      description: `Write a markdown document to a QMD collection. Creates or overwrites the file on disk, then immediately re-indexes it (FTS + links). Does NOT generate embeddings — run 'qmd embed' separately.
+      description: `Write a markdown document to a QMD collection. Creates or overwrites the file on disk, then immediately re-indexes it (FTS + links). When the global 'autoEmbedOnWrite' setting is enabled (the default), it also auto-generates embeddings for the collection so the page becomes immediately retrievable; when disabled (e.g. for high-volume bulk writes), run 'qmd embed' or POST /api/embed afterward to build vectors.
 
 For wiki collections (type: "wiki"), writes are logged automatically. For raw collections (type: "raw"), a warning is included — raw sources are meant to be immutable.`,
       annotations: { readOnlyHint: false },

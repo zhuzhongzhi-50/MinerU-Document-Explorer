@@ -13,10 +13,12 @@ import {
   DocxExtractionResultSchema,
   PptxExtractionResultSchema,
   PageIndexResultSchema,
+  XlsxExtractionResultSchema,
   type PdfExtractionResult,
   type DocxExtractionResult,
   type PptxExtractionResult,
   type PageIndexResult,
+  type XlsxExtractionResult,
 } from "./python-types.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -108,8 +110,19 @@ export function callPythonScript(
         reject(new Error(`Python script ${scriptName} failed:\n${stderr}`));
         return;
       }
+      // Some Python runtimes emit non-JSON diagnostics (e.g. deprecation
+      // warnings like PyMuPDF's `fitz` notice) to stdout *before* the JSON
+      // payload. Extract the outermost {...} so JSON.parse isn't tripped up by
+      // the leading text. Without this, valid extractions get rejected as
+      // "invalid JSON" and the document is silently skipped during indexing.
+      let jsonStr = stdout.trim();
+      const firstBrace = jsonStr.indexOf("{");
+      const lastBrace = jsonStr.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+      }
       try {
-        resolve(JSON.parse(stdout));
+        resolve(JSON.parse(jsonStr));
       } catch {
         reject(new Error(`Python script ${scriptName} returned invalid JSON:\n${stdout.slice(0, 200)}`));
       }
@@ -167,6 +180,14 @@ export async function extractPptx(filepath: string): Promise<PptxExtractionResul
 export async function extractPptxTables(filepath: string): Promise<PptxExtractionResult> {
   const data = await callPythonScript("extract_pptx.py", [filepath, "--tables-only"]);
   return parsePythonResult(data, PptxExtractionResultSchema, "extract_pptx.py");
+}
+
+/**
+ * Call extract_xlsx.py and return typed XLSX extraction result.
+ */
+export async function extractXlsx(filepath: string): Promise<XlsxExtractionResult> {
+  const data = await callPythonScript("extract_xlsx.py", [filepath]);
+  return parsePythonResult(data, XlsxExtractionResultSchema, "extract_xlsx.py");
 }
 
 /**

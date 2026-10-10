@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>QMD 提问接口对外集成方案（/api/ask）</title>
+<style>
+  :root { --ink:#1a1a1a; --line:#d8d8d8; --accent:#1f5fae; --codebg:#f5f6f8; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", sans-serif;
+    color: var(--ink); font-size: 12pt; line-height: 1.6; background:#fff;
+  }
+  @page { size: A4; margin: 16mm 15mm; }
+  .page { padding: 0 2mm; }
+  h1 { font-size: 20pt; margin: 0 0 4mm 0; color: var(--accent); border-bottom: 2px solid var(--accent); padding-bottom: 3mm; }
+  h2 { font-size: 14pt; margin: 8mm 0 3mm; color: var(--accent); border-left: 4px solid var(--accent); padding-left: 3mm; }
+  h3 { font-size: 12pt; margin: 5mm 0 2mm; }
+  p { margin: 2mm 0; }
+  ul, ol { margin: 2mm 0 2mm 6mm; padding: 0; }
+  li { margin: 1mm 0; }
+  code { font-family: "Cascadia Code", Consolas, "Courier New", monospace; font-size: 10.5pt; background: var(--codebg); padding: 0 2px; border-radius: 3px; }
+  pre { background: var(--codebg); border: 1px solid var(--line); border-radius: 4px; padding: 3mm 4mm; overflow-x: auto; font-size: 9.8pt; line-height: 1.45; white-space: pre; }
+  pre code { background: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0; font-size: 10.5pt; }
+  th, td { border: 1px solid var(--line); padding: 2mm 3mm; text-align: left; vertical-align: top; }
+  th { background: #eef3fa; color: var(--accent); font-weight: 600; }
+  .note { background:#fff8e6; border:1px solid #f0d89a; border-radius:4px; padding:2mm 4mm; margin:3mm 0; }
+  .arch { background:#f3f7fc; border:1px solid #c9dcef; border-radius:6px; padding:4mm; margin:4mm 0; text-align:center; font-size:11pt; }
+  .arch b { color: var(--accent); }
+  .foot { margin-top: 10mm; border-top: 1px solid var(--line); padding-top: 3mm; font-size: 9pt; color:#666; }
+  .pb { page-break-before: always; }
+  @media print {
+    h2 { page-break-after: avoid; }
+    pre, table, .arch, .note { page-break-inside: avoid; }
+    a { color: var(--ink); text-decoration: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>QMD 提问接口对外集成方案<br /><span style="font-size:12pt;color:#555;">（基于 <code>/api/ask</code> 的服务器侧问答 API）</span></h1>
+
+  <h2>1. 背景与目标</h2>
+  <p>将「基于服务器知识库的问答能力」从网页前端抽离为一个<strong>独立的 HTTP 接口</strong>，供其他业务系统、脚本或第三方应用直接调用。</p>
+  <ul>
+    <li><strong>全程在服务器端完成</strong>：检索服务器上的知识库集合 + 调用服务器配置的 LLM 生成答案。</li>
+    <li><strong>调用方只传问题</strong>，无需关心 embedding、检索、重排、模型推理等细节，也不持有 LLM 的 key。</li>
+    <li><strong>返回标准 JSON</strong>（非流式），便于程序解析与系统集成。</li>
+  </ul>
+  <p class="note"><b>与网页聊天的区别：</b>网页前端使用 <code>/api/query</code>（SSE 流式、逐字推送）；对外接口使用 <code>/api/ask</code>（一次性 JSON）。两者复用同一套服务端检索 + RAG 流水线，能力一致。</p>
+
+  <h2>2. 整体架构</h2>
+  <div class="arch">
+    调用方系统 &nbsp;──POST /api/ask(JSON)──&gt;&nbsp; <b>QMD 服务端</b> &nbsp;──&gt;&nbsp; ①查询扩展 → ②混合检索(BM25+向量，命中服务器集合) → ③重排 → ④LLM 生成(服务器 llmBaseUrl/apiKey/model)<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└──&gt;&nbsp; <b>返回 JSON { answer, sources, model, ... }</b>
+  </div>
+  <p>知识库与 LLM 均在服务端，调用方无感。实现位置：<code>src/api/server.ts</code> 中的 <code>POST /api/ask</code> 处理函数。</p>
+
+  <h2 class="pb">3. 接口规范</h2>
+  <h3>3.1 基本信息</h3>
+  <table>
+    <tr><th>项</th><th>值</th></tr>
+    <tr><td>路径</td><td><code>POST /api/ask</code></td></tr>
+    <tr><td>请求头</td><td><code>Content-Type: application/json</code>；<code>Authorization: Bearer &lt;token&gt;</code></td></tr>
+    <tr><td>响应格式</td><td><code>application/json</code>（非流式，单次返回）</td></tr>
+    <tr><td>鉴权</td><td>需要合法 Bearer Token（详见第 4 节）</td></tr>
+  </table>
+
+  <h3>3.2 请求体（JSON）</h3>
+  <table>
+    <tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr>
+    <tr><td><code>query</code></td><td>string</td><td>是</td><td>用户问题。缺失或为空返回 400。</td></tr>
+    <tr><td><code>collections</code></td><td>string[]</td><td>否</td><td>指定检索的知识库集合，如 <code>["ceshi"]</code>。不填则走服务器默认集合。</td></tr>
+    <tr><td><code>collection</code></td><td>string</td><td>否</td><td>单个集合的简写，等价于 <code>collections:[collection]</code>。</td></tr>
+    <tr><td><code>limit</code></td><td>number</td><td>否</td><td>检索候选条数，默认取服务端配置。</td></tr>
+    <tr><td><code>minScore</code></td><td>number</td><td>否</td><td>最低相关分阈值。</td></tr>
+    <tr><td><code>topK</code></td><td>number</td><td>否</td><td>送入 LLM 的上下文条数。</td></tr>
+    <tr><td><code>intent</code></td><td>string</td><td>否</td><td>检索意图提示（如 <code>"default"</code>）。</td></tr>
+  </table>
+
+  <h3>3.3 响应体（JSON）</h3>
+  <table>
+    <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+    <tr><td><code>query</code></td><td>string</td><td>回显的问题。</td></tr>
+    <tr><td><code>model</code></td><td>string</td><td>实际使用的 LLM 模型名（服务器侧配置）。</td></tr>
+    <tr><td><code>answer</code></td><td>string</td><td>生成的答案文本。</td></tr>
+    <tr><td><code>error</code></td><td>string|null</td><td>生成阶段错误（如 LLM 不可达）；为空表示成功。</td></tr>
+    <tr><td><code>sources</code></td><td>array</td><td>引用的知识库片段（标题、文件、分数等）。</td></tr>
+    <tr><td><code>rawResults</code></td><td>array</td><td>检索原始结果（文件、分数、chunk 文本）。</td></tr>
+  </table>
+
+  <h3>3.4 错误码</h3>
+  <ul>
+    <li><code>400</code>：请求体非法（JSON 解析失败 / 缺少 <code>query</code>）。</li>
+    <li><code>401</code>：未提供或 Token 无效。</li>
+    <li><code>500</code>：检索阶段失败，响应体含 <code>{ "error": "检索失败: ..." }</code>。</li>
+    <li>生成阶段失败：仍返回 <code>200</code>，但 <code>error</code> 字段非空（如 <code>问答请求失败: fetch failed</code>，多为 LLM 地址不可达）。</li>
+  </ul>
+
+  <h2 class="pb">4. 认证方案</h2>
+  <h3>4.1 现状（快速可用）</h3>
+  <p>复用现有 Bearer Token 体系：任意合法 token 即可调用 <code>/api/ask</code>。登录获取 token：<code>POST /api/auth/login</code>。</p>
+  <h3>4.2 推荐（正式对外前）</h3>
+  <p>新增<strong>只读「查询 Token」作用域</strong>：</p>
+  <ul>
+    <li>仅允许访问 <code>POST /api/ask</code> 及可选的 <code>GET /api/collections</code>；</li>
+    <li>访问其它路由（如 <code>PUT /api/config</code>、<code>/api/users</code>）一律返回 <code>403</code>；</li>
+    <li>通过环境变量（如 <code>QMD_QUERY_TOKEN</code>）下发，可分发给多个外部系统。</li>
+  </ul>
+  <p class="note"><b>不要</b>用 <code>QMD_ALLOW_ANONYMOUS=true</code> 来暴露接口——该开关会让<strong>所有</strong> <code>/api</code> 路由匿名开放，包括配置写入与用户管理，存在严重安全风险。</p>
+  <h3>4.3 纵深防御</h3>
+  <p>在服务器安全组 / 防火墙将 8787 端口<strong>仅放行调用方 IP</strong>，避免接口被公网任意扫描调用。</p>
+
+  <h2>5. 知识库范围</h2>
+  <ul>
+    <li>默认检索服务器配置的默认集合（<code>defaultCollections</code>）；</li>
+    <li>调用方可经 <code>collections</code> 字段指定，例如 <code>{"collections":["ceshi"]}</code>；</li>
+    <li>建议在服务端对集合名做<strong>白名单校验</strong>，防止越权枚举或检索非预期集合。</li>
+  </ul>
+
+  <h2>6. 跨域（CORS）与网络</h2>
+  <ul>
+    <li><b>浏览器跨域调用</b>：设置 <code>QMD_ALLOWED_ORIGINS=https://调用方域名</code>（多个用逗号分隔）。</li>
+    <li><b>服务端互调</b>：无需 CORS；直接 HTTP 调用即可。</li>
+    <li>本机 <code>localhost</code> 与公网页面之间的 fetch 受浏览器私有网络策略限制，务必保证「页面源」与「请求目标」同源。</li>
+  </ul>
+
+  <h2 class="pb">7. 部署</h2>
+  <pre><code># 1) 构建（原生模块需在目标平台编译，勿跨平台复用 node_modules/dist）
+npm run build
+
+# 2) 启动服务（默认 8787 端口；对外监听用 0.0.0.0）
+node bin/qmd serve --host 0.0.0.0 --port 8787
+
+# 3) 配置 LLM（服务器侧，调用方不传 key）
+#    通过网页「设置」面板填写：llmBaseUrl / llmApiKey / llmModel
+#    常见厂商基地址：
+#      OpenAI      https://api.openai.com/v1
+#      DeepSeek    https://api.deepseek.com/v1
+#      阿里通义     https://dashscope.aliyuncs.com/compatible-mode/v1
+#      智谱 GLM     https://open.bigmodel.cn/api/paas/v4</code></pre>
+  <p class="note">若修改了源码，必须重新 <code>npm run build</code> 并重启服务，新接口才生效。修改配置（LLM 等）无需重建，前端重发请求即可。</p>
+
+  <h2>8. 调用示例</h2>
+  <h3>8.1 cURL</h3>
+  <pre><code># 登录拿 token
+TOKEN=$(curl -s -X POST http://服务器:8787/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"你的用户","password":"你的密码"}' \
+  | python -c "import sys,json;print(json.load(sys.stdin)['token'])")
+
+# 调用提问接口
+curl -s -X POST http://服务器:8787/api/ask \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"如何保守机密？","collections":["ceshi"]}'</code></pre>
+
+  <h3>8.2 PowerShell（中文用 UTF-8 文件避免乱码）</h3>
+  <pre><code>$tok = (Invoke-RestMethod -Method Post http://localhost:8787/api/auth/login `
+  -ContentType "application/json" -Body '{"username":"admin","password":"123"}').token
+
+# 用 .NET 写无 BOM 的 UTF-8 文件，防止中文被终端编码成 ?
+[System.IO.File]::WriteAllText("body.json", `
+  '{"query":"保守机密的具体要求是什么？","collections":["ceshi"]}', `
+  [System.Text.UTF8Encoding]::new($false))
+
+Invoke-RestMethod -Method Post http://localhost:8787/api/ask `
+  -Headers @{ Authorization="Bearer $tok"; "Content-Type"="application/json" } `
+  -InFile body.json | ConvertTo-Json -Depth 4</code></pre>
+
+  <h3>8.3 浏览器同页 fetch（相对路径，自动指向当前服务器）</h3>
+  <pre><code>fetch('/api/ask', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer TOKEN' },
+  body: JSON.stringify({ query: '保守机密的具体要求是什么？', collections: ['ceshi'] })
+}).then(r => r.json()).then(d => console.log(JSON.stringify(d, null, 2)))</code></pre>
+
+  <h2>9. 安全与运维建议</h2>
+  <ul>
+    <li>对外前务必切换为<strong>只读查询 Token</strong>，切勿共用管理员/全权限 token。</li>
+    <li>防火墙仅放行调用方 IP；对调用频率做限流与审计。</li>
+    <li>LLM key 仅存于服务器，绝不出现在接口请求或响应中。</li>
+    <li>监控 <code>error</code> 字段（尤其 <code>fetch failed</code>），用于排查 LLM 出网/地址问题。</li>
+    <li>建议为不同外部系统颁发<strong>不同的查询 token</strong>，便于吊销与追溯。</li>
+  </ul>
+
+  <div class="foot">文档生成说明：本方案对应 <code>POST /api/ask</code> 接口，实现位于 <code>src/api/server.ts</code>。打印时请于浏览器「打印」对话框中选择「A4」纸张并勾选「背景图形」。</div>
+
+</div>
+</body>
+</html>

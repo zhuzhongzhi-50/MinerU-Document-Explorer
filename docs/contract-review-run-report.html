@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>合同驱动反向审查 · 运行过程与项目改动报告</title>
+<style>
+  :root {
+    --ink: #1f2328;
+    --muted: #5b6168;
+    --line: #d8dce0;
+    --accent: #1f6feb;
+    --accent-bg: #eef4ff;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --code-bg: #f6f8fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    width: 210mm;
+    margin: 0 auto;
+    padding: 0;
+    color: var(--ink);
+    font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.65;
+    background: #fff;
+  }
+  @page { size: A4; margin: 16mm 15mm; }
+  @media print {
+    body { width: auto; font-size: 11.5px; }
+    .no-print { display: none !important; }
+    h2, h3 { break-after: avoid; }
+    table, .card, pre { break-inside: avoid; }
+  }
+
+  header.doc-head {
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 10px;
+    margin-bottom: 18px;
+  }
+  header.doc-head h1 { font-size: 21px; margin: 0 0 4px; letter-spacing: .5px; }
+  header.doc-head .sub { color: var(--muted); font-size: 12px; }
+  header.doc-head .meta { color: var(--muted); font-size: 11px; margin-top: 6px; }
+
+  h2 {
+    font-size: 16px;
+    margin: 26px 0 10px;
+    padding: 6px 10px;
+    background: var(--accent-bg);
+    border-left: 4px solid var(--accent);
+    border-radius: 3px;
+  }
+  h3 { font-size: 13.5px; margin: 16px 0 6px; color: #163a6b; }
+  h4 { font-size: 12.3px; margin: 12px 0 5px; color: #163a6b; font-weight: 600; }
+  p { margin: 6px 0; }
+  ul, ol { margin: 6px 0 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 12px;
+    font-size: 11.5px;
+  }
+  th, td {
+    border: 1px solid var(--line);
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #f0f3f6; font-weight: 600; }
+  tr:nth-child(even) td { background: #fafbfc; }
+
+  code, .mono { font-family: "Cascadia Code", Consolas, "Courier New", monospace; font-size: 11px; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-size: 10.8px;
+    line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; }
+
+  .card {
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 10px 0;
+    background: #fff;
+  }
+  .card.ok { border-left: 4px solid var(--ok); }
+  .card.warn { border-left: 4px solid var(--warn); }
+  .card.info { border-left: 4px solid var(--accent); }
+  .tag { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 600; }
+  .tag.ok { background: #def7e4; color: var(--ok); }
+  .tag.warn { background: #fdf2d0; color: var(--warn); }
+  .tag.info { background: var(--accent-bg); color: var(--accent); }
+
+  .step { border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; margin: 10px 0; }
+  .step .h { font-weight: 700; color: #163a6b; margin-bottom: 4px; }
+  .kv { display: grid; grid-template-columns: 92px 1fr; gap: 2px 8px; }
+  .kv b { color: var(--muted); font-weight: 600; }
+  .mermaid { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 10px 0; }
+
+  footer { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 8px; color: var(--muted); font-size: 10.5px; }
+  .page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+<header class="doc-head">
+  <h1>合同驱动反向审查 · 运行过程与项目改动报告</h1>
+  <div class="sub">MinerU-Document-Explorer 项目 — 合同审查（运营类）模块</div>
+  <div class="meta">报告生成时间：2026-09-20 ｜ 文档格式：A4 ｜ 涵盖范围：本次「合同驱动反向审查」运行 + 同会话内项目全部改动</div>
+</header>
+
+<!-- ===================== 第一部分 ===================== -->
+<h2>第一部分　本次运行完整过程与结果</h2>
+<p>本次运行目标：实现并验证「合同驱动（反向）审查」——<b>从合同片段出发，反查规则清单与 wiki 知识库，重点捕捉标准 44 条风险清单未覆盖的「预料外问题」</b>，与既有的「规则驱动（正向）审查」形成互补。</p>
+
+<div class="step">
+  <div class="h">阶段一　需求澄清与现状探查</div>
+  <div class="kv">
+    <b>输入</b><span>用户要求：<i>「再来一遍『合同驱动』（拿合同片段反查规则/wiki）捕捉预料外的问题」</i></span>
+    <b>动作</b><span>并行检索 <code>src/contract-review/</code>、<code>scripts/</code>、<code>docs/contract-review-workflow.html</code></span>
+    <b>输出</b><span>确认<b>正向管线已完整跑通</b>：<code>reviewContract()</code> 对 44 条规则逐条检索合同 + 真实 wiki + LLM 判定（脚本 <code>run-review-kindergarten.ts</code>）。<b>反向（合同驱动）轴未实现</b>。</span>
+    <b>异常</b><span>无</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h">阶段二　设计实现（后端零新依赖，复用现有原语）</div>
+  <div class="kv">
+    <b>改动 1</b><span><code>src/contract-review/prompt.ts</code>：新增 <code>buildContractDrivenPrompt()</code>——从合同片段出发，要求 LLM 列出全部风险，并显式区分 <code>expected</code>（命中标准清单）/ <code>unexpected</code>（清单未覆盖），重点挖掘预料外项。</span>
+    <b>改动 2</b><span><code>src/contract-review/review.ts</code>：新增 <code>splitClauses()</code>（分句）、<code>extractJsonArray()</code>（容错解析）、<code>contractDrivenReview()</code>（L591）、<code>composeContractDrivenReport()</code>（L713）及 4 个接口类型；循环内对每个已完成片段<b>增量写入</b> <code>cd-*-partial.md</code>（L680–684）。</span>
+    <b>改动 3</b><span><code>scripts/run-contract-driven.ts</code>（新建）：运行脚本，复用 <code>hybridQuery</code> 查 wiki、<code>chatComplete</code> 调 LLM，支持 <code>MAX_FRAGMENTS</code> 环境变量控制片段数。</span>
+    <b>输出</b><span>Lint 检查 0 错误。</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h">阶段三　小批量验证（MAX_FRAGMENTS=1）</div>
+  <div class="kv">
+    <b>运行</b><span><code>$env:MAX_FRAGMENTS=1; bun scripts/run-contract-driven.ts</code></span>
+    <b>异常</b><span class="warn">报错 <code>error: Unexpected export at review.ts:528:1</code>（语法解析失败）</span>
+    <b>诊断</b><span>早先一次 <code>replace_in_file</code> 在替换 <code>composeReport</code> 结尾时，<b>丢失了函数闭合 <code>}</code></b>，导致后续顶层 <code>export</code> 被卷进未闭合的函数块内。</span>
+    <b>处理</b><span>在 <code>review.ts</code> 第 521–522 行补回缺失的 <code>}</code>（<code>composeReport</code> 闭合括号）。</span>
+    <b>复跑</b><span class="ok">成功：第 1 片段命中 <b>1 条「预料外」风险</b>，且 wiki 反查命中《委托运营审查要点》等页面 → 全链路打通。</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h">阶段四　全量运行（第一次）</div>
+  <div class="kv">
+    <b>运行</b><span><code>bun scripts/run-contract-driven.ts</code>（默认分析 40 个片段）</span>
+    <b>异常</b><span class="warn"><code>Idle timeout - no output for too long</code>（长时间无输出触发空闲超时）</span>
+    <b>诊断</b><span><code>onProgress</code> 仅在该片段「有风险」时才打印，大量无风险片段静默执行 → 长时无 stdout。</span>
+    <b>处理</b><span>将 <code>onProgress</code> 改为<b>每个片段都打印一行</b>（片段序号/总数、风险数、预料外数、wiki 命中），持续产生输出。</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h">阶段五　全量运行（第二次）</div>
+  <div class="kv">
+    <b>现象</b><span>跑到 <code>[14/40]</code> 后输出被截断、<code>exitCode 0</code>，但<b>最终报告未落盘</b>。</span>
+    <b>诊断</b><span>报告仅在 <code>for</code> 循环<b>结束后</b>一次性写入；中途被超时打断则无任何产出文件。</span>
+    <b>处理</b><span>在循环<b>内部</b>对每个已完成片段<b>增量写入</b> <code>cd-*-partial.md</code>（即使被超时打断也保留已完成结果）。</span>
+  </div>
+</div>
+
+<div class="step">
+  <div class="h">阶段六　全量运行（第三次，增量持久化生效）</div>
+  <div class="kv">
+    <b>运行</b><span><code>bun scripts/run-contract-driven.ts</code>（全量）</span>
+    <b>现象</b><span>再次触发空闲超时，但<b>增量文件已写入</b>。</span>
+    <b>结果数据</b><span>落盘文件 <code>reports-kindergarten/cd-____________-________docx-partial.md</code>：</span>
+  </div>
+  <div class="card ok">
+    <p style="margin:2px 0"><span class="tag ok">结果</span> 已分析合同片段数：<b>23</b></p>
+    <p style="margin:2px 0"><span class="tag ok">结果</span> 识别风险点总数：<b>233</b>（预料内 102 / 预料外 <b>131</b>）</p>
+    <p style="margin:2px 0"><span class="tag ok">结果</span> 预料外问题占比：<b>56%</b></p>
+    <p style="margin:2px 0"><span class="tag info">溯源</span> 每段均带 wiki 依据，命中《委托运营审查要点》《中建八局二公司运营类风险要素清单》《关于进一步强化运营项目管理的通知》《运营项目立项与决策管理办法》《运营管理手册》等页面</p>
+  </div>
+  <p><b>典型「预料外问题」示例（标准 44 条清单未覆盖）：</b></p>
+  <ul>
+    <li><b>期限自相矛盾</b>（片段 14）：写「运营期 <code>15 年</code>，自 2026-11-01 至 2041-03-25」——实际不足 15 年；且「运营期结束后」与「2041-03-25 前检修」时间逻辑冲突。</li>
+    <li><b>关键字段空白</b>（片段 22）：温度传感器「数量约 <code>/ 个</code>」——数量栏为空，乙方安装义务成本不可控。</li>
+    <li><b>账户信息被拆成两行</b>（片段 18/19）：开户行、账号各自独立成段，无户名、无归属，资金收付路径不清。</li>
+    <li><b>转供水电合规/计量风险</b>（片段 20/21）：甲方产权水电计量下乙方直付、财政非营业性票据能否税前扣除、表计误差责任划分等，标准清单基本未覆盖。</li>
+  </ul>
+</div>
+
+<div class="step">
+  <div class="h">阶段七　结果验证与结论</div>
+  <div class="kv">
+    <b>验证</b><span>读取 <code>cd-*-partial.md</code> 确认内容完整、LLM 返回的 JSON 数组解析正确、报告格式规范（含概览统计与逐片段风险发现）。</span>
+    <b>结论</b><span class="ok">合同驱动反向审查功能<b>可用且有效</b>：成功从合同片段反查规则/wiki，捕捉到标准清单未覆盖的预料外隐患。受运行环境单次长时无输出超时限制，完整 40 片段需在本机连续运行（参见文末命令）。</span>
+  </div>
+</div>
+
+<!-- ===================== 第二部分 ===================== -->
+<h2 class="page-break">第二部分　项目详细结构流程图</h2>
+<p><b>本部分定位：</b>第一部分回答了"跑出来什么结果"，本部分回答"<b>这套系统长什么样、数据是怎么流动的</b>"。它是理解第三部分（对原项目做了哪些改动）的<b>前置基础</b>——只有先看清模块边界与依赖方向，才能判断某处改动会不会牵连其他模块。</p>
+
+<h3>2.0 导读 · 内容范围与阅读路径</h3>
+<p><b>本部分涉及的主题、子主题与关键概念一览：</b></p>
+<table>
+  <tr><th style="width:90px">主题</th><th style="width:130px">子主题</th><th>需展开讲解的关键概念 / 步骤</th></tr>
+  <tr><td rowspan="4"><b>① 结构</b></td><td>分层架构</td><td>接入层 / 应用层 / 业务层 / 能力层 / 存储层 的职责与边界</td></tr>
+  <tr><td>模块划分</td><td>前端、API、信息收集、存储、检索、知识库、合同审查、脚本、LLM 出口</td></tr>
+  <tr><td>目录层级</td><td>各目录 / 文件在架构中的层级位置与主要入口函数</td></tr>
+  <tr><td>依赖关系</td><td>谁依赖谁、依赖方向、是否存在反向或循环依赖</td></tr>
+  <tr><td rowspan="3"><b>② 流程</b></td><td>正向数据流</td><td>浏览器 → API → 业务模块 → LLM / 检索 → 落库 → 回显</td></tr>
+  <tr><td>反向（审查）数据流</td><td>合同分句 → 检索反查 → LLM 判定 → 增量落盘报告</td></tr>
+  <tr><td>知识回流闭环</td><td>采集摘要 → wiki 写入 → 自动建索引 → 下次审查可检索</td></tr>
+  <tr><td><b>③ 要点</b></td><td>重点与误区</td><td>最该记住的结论、常见误解、容易被忽略的细节</td></tr>
+</table>
+<p><b>建议阅读路径：</b>先看 <b>2.1</b> 建立整体骨架与数据流动直觉 → 再看 <b>2.2</b> 把骨架对应到真实文件 → 然后看 <b>2.3</b> 理清依赖方向 → 最后看 <b>2.4</b> 的重点与误区做校验。若时间有限，可只精读 <b>2.1.1 分层模型</b>、<b>2.1.3 三条主链路</b> 与 <b>2.4 常见误区</b>。</p>
+
+<h3>2.1 模块划分与调用 / 数据流</h3>
+<p><b>定义：</b>"模块划分"指系统被拆成哪些职责单一的单元；"调用 / 数据流"指一次请求从入口到落库再回显，经过了哪些单元、传递了什么数据。二者共同构成系统的<b>静态结构</b>与<b>动态行为</b>两层视图。</p>
+<p><b>目的：</b>① 定位问题——报错时能快速判断是哪一层；② 评估改动影响——新增功能应落在哪一层、会不会波及既有模块；③ 复用能力——明确哪些是可复用资产（检索、LLM 出口），避免重复造轮子。</p>
+<h4>2.1.1 分层模型：先建立骨架</h4>
+<p>理解本系统最有效的方式是把它看成<b>五层</b>。分层的目的不是炫技，而是<b>隔离变化</b>——某一层的实现被替换时，其他层不受影响。这正是第三部分"兼容性改动"能够成立的根本原因：新增能力只落在业务层与存储层的增量部分，接入层与应用层几乎不动。</p>
+<table>
+  <tr><th style="width:80px">层级</th><th style="width:160px">包含模块</th><th>职责</th><th style="width:110px">类比</th></tr>
+  <tr><td><b>接入层</b></td><td><code>src/web/</code>、<code>scripts/</code></td><td>接收人（浏览器）或机器（脚本）的指令，并展示结果</td><td>餐厅前台与菜单</td></tr>
+  <tr><td><b>应用层</b></td><td><code>src/api/server.ts</code>、<code>qmd</code> CLI</td><td>路由分发、参数校验、鉴权、错误兜底；<b>本身不含业务逻辑</b></td><td>传菜员，只负责送单</td></tr>
+  <tr><td><b>业务层</b></td><td><code>src/intake.ts</code>、<code>src/contract-review/</code></td><td>真正的领域逻辑：信息收集、合同审查</td><td>厨师，按菜谱做菜</td></tr>
+  <tr><td><b>能力层</b></td><td><code>hybridQuery</code>、LLM 出口（<code>settings</code>）</td><td>可复用的通用能力：混合检索、模型调用</td><td>灶台与食材，谁都能用</td></tr>
+  <tr><td><b>存储层</b></td><td><code>src/db.ts</code>、<code>src/db-schema.ts</code>、<code>src/store.ts</code></td><td>SQLite 持久化、文档读写、索引维护</td><td>仓库与冷库</td></tr>
+</table>
+<p><b>关键约束（务必记住）：</b>依赖方向<b>严格自上而下</b>——接入层可调用应用层，应用层调用业务层，业务层调用能力层与存储层；<b>反向调用不存在</b>（例如 <code>db.ts</code> 绝不会反过来调用 <code>contract-review/</code>）。这条单向依赖保证了模块可独立测试、独立替换，也是判断"改动是否安全"的第一准则。</p>
+
+<h4>2.1.2 图例与读图方法</h4>
+<p>下方流程图用<b>颜色区分模块性质</b>，用<b>箭头方向表示依赖 / 数据流向</b>（箭头由调用方指向被调用方）：</p>
+<ul>
+  <li><span style="color:#1f6feb;font-weight:700">蓝色</span>：业务与接入模块（前端、API、信息收集、Wiki 保存、合同审查、脚本）</li>
+  <li><span style="color:#9a6700;font-weight:700">橙色</span>：LLM 后端（模型推理，本地 llama.cpp 或远程服务）</li>
+  <li><span style="color:#1a7f37;font-weight:700">绿色</span>：检索与知识库（混合检索、向量索引、wiki 页）</li>
+  <li><span style="color:#6f42c1;font-weight:700">紫色</span>：SQLite 持久化</li>
+</ul>
+<p><b>读图技巧：</b>顺着箭头走就是一次完整调用；遇到<b>双向箭头</b>（如"混合检索 ↔ 知识库"）表示"取数据 + 回写索引"的往返；<b>长绕行线</b>（如"脚本 → 合同审查"）表示<b>绕过 HTTP 的直接调用</b>，专用于耗时长的任务以避免请求超时。这正是反向审查由脚本而非 <code>/api/review</code> 触发的原因。</p>
+
+<div class="mermaid">
+<svg viewBox="0 0 880 720" width="100%" font-family="'Microsoft YaHei','PingFang SC',sans-serif">
+  <defs>
+    <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#5b6168"></path>
+    </marker>
+  </defs>
+
+  <!-- 用户 / 浏览器 -->
+  <rect x="360" y="10" width="160" height="44" rx="6" fill="#eef4ff" stroke="#1f6feb" stroke-width="1.3"/>
+  <text x="440" y="37" text-anchor="middle" font-size="13" font-weight="700" fill="#163a6b">用户 / 浏览器</text>
+
+  <!-- API 层 -->
+  <rect x="330" y="90" width="220" height="44" rx="6" fill="#eef4ff" stroke="#1f6feb" stroke-width="1.3"/>
+  <text x="440" y="117" text-anchor="middle" font-size="12.5" font-weight="700" fill="#163a6b">API 层 (src/api/server.ts)</text>
+
+  <!-- 信息收集 -->
+  <rect x="20" y="180" width="200" height="52" rx="6" fill="#eef4ff" stroke="#1f6feb" stroke-width="1.3"/>
+  <text x="120" y="201" text-anchor="middle" font-size="12" font-weight="700" fill="#163a6b">信息收集</text>
+  <text x="120" y="219" text-anchor="middle" font-size="10.5" fill="#5b6168">src/intake.ts</text>
+
+  <!-- Wiki 保存 -->
+  <rect x="340" y="180" width="200" height="52" rx="6" fill="#eef4ff" stroke="#1f6feb" stroke-width="1.3"/>
+  <text x="440" y="201" text-anchor="middle" font-size="12" font-weight="700" fill="#163a6b">Wiki 保存</text>
+  <text x="440" y="219" text-anchor="middle" font-size="10.5" fill="#5b6168">store.writeDocument</text>
+
+  <!-- 合同审查（反向） -->
+  <rect x="660" y="180" width="200" height="52" rx="6" fill="#eef4ff" stroke="#1f6feb" stroke-width="1.3"/>
+  <text x="760" y="201" text-anchor="middle" font-size="12" font-weight="700" fill="#163a6b">合同审查（反向）</text>
+  <text x="760" y="219" text-anchor="middle" font-size="10.5" fill="#5b6168">review.ts</text>
+
+  <!-- LLM 后端 -->
+  <rect x="20" y="300" width="200" height="58" rx="6" fill="#fff4e6" stroke="#9a6700" stroke-width="1.3"/>
+  <text x="120" y="321" text-anchor="middle" font-size="12" font-weight="700" fill="#9a6700">LLM 后端</text>
+  <text x="120" y="338" text-anchor="middle" font-size="10" fill="#7a5210">getDefaultLlamaCpp</text>
+  <text x="120" y="351" text-anchor="middle" font-size="10" fill="#7a5210">/ chatComplete</text>
+
+  <!-- 知识库 -->
+  <rect x="340" y="300" width="200" height="58" rx="6" fill="#e9f7ee" stroke="#1a7f37" stroke-width="1.3"/>
+  <text x="440" y="321" text-anchor="middle" font-size="12" font-weight="700" fill="#1a7f37">知识库</text>
+  <text x="440" y="338" text-anchor="middle" font-size="10" fill="#14622b">向量索引 + wiki 页</text>
+  <text x="440" y="351" text-anchor="middle" font-size="10" fill="#14622b">检索语料来源</text>
+
+  <!-- 混合检索 -->
+  <rect x="660" y="300" width="200" height="58" rx="6" fill="#e9f7ee" stroke="#1a7f37" stroke-width="1.3"/>
+  <text x="760" y="321" text-anchor="middle" font-size="12" font-weight="700" fill="#1a7f37">混合检索</text>
+  <text x="760" y="338" text-anchor="middle" font-size="10" fill="#14622b">hybridQuery 命中</text>
+  <text x="760" y="351" text-anchor="middle" font-size="10" fill="#14622b">片段回流</text>
+
+  <!-- SQLite -->
+  <rect x="340" y="440" width="200" height="52" rx="6" fill="#f3e8ff" stroke="#6f42c1" stroke-width="1.3"/>
+  <text x="440" y="461" text-anchor="middle" font-size="12" font-weight="700" fill="#6f42c1">SQLite</text>
+  <text x="440" y="479" text-anchor="middle" font-size="10.5" fill="#54298f">db.ts Database</text>
+
+  <!-- 脚本 -->
+  <rect x="20" y="440" width="200" height="52" rx="6" fill="#eef4ff" stroke="#1f6feb" stroke-width="1.3"/>
+  <text x="120" y="461" text-anchor="middle" font-size="12" font-weight="700" fill="#163a6b">脚本 scripts/</text>
+  <text x="120" y="479" text-anchor="middle" font-size="10" fill="#5b6168">run-contract-driven</text>
+
+  <!-- 连线 -->
+  <g stroke="#5b6168" stroke-width="1.3" fill="none" marker-end="url(#ah)">
+    <path d="M440,54 L440,90"/>
+    <path d="M385,134 L165,180"/>
+    <path d="M440,134 L440,180"/>
+    <path d="M495,134 L735,180"/>
+    <path d="M120,232 L120,300"/>
+    <path d="M740,232 C 580,252 280,262 220,300"/>
+    <path d="M760,232 L760,300"/>
+    <path d="M705,329 L545,329"/>
+    <path d="M545,349 L705,349"/>
+    <path d="M440,232 L440,300"/>
+    <path d="M20,329 L10,329 L10,112 L330,112"/>
+    <path d="M120,492 L120,660 L860,660 L860,205 L860,190 L800,190"/>
+    <path d="M220,466 L340,466"/>
+    <path d="M440,440 L440,358"/>
+  </g>
+
+  <!-- 连线标签 -->
+  <g font-size="10.5" fill="#163a6b">
+    <text x="448" y="76">HTTP</text>
+    <text x="238" y="154">intake/*</text>
+    <text x="448" y="158">wiki/save</text>
+    <text x="605" y="154">documents</text>
+    <text x="128" y="270">问题生成</text>
+    <text x="455" y="262" text-anchor="middle">风险判定</text>
+    <text x="768" y="262">分句+反查</text>
+    <text x="600" y="322">命中片段</text>
+    <text x="600" y="362">检索语料</text>
+    <text x="448" y="270">写入 .md 自动 embed</text>
+    <text x="6" y="320" transform="rotate(-90 6 320)">摘要 / 风险 JSON</text>
+    <text x="130" y="678">直接调用</text>
+    <text x="248" y="459">init</text>
+    <text x="360" y="408">持久化</text>
+  </g>
+</svg>
+</div>
+
+<h4>2.1.3 数据流逐步解读（归纳为三条主链路）</h4>
+<p>图中连线较多，实际可归纳为<b>三条主链路</b>。理解这三条，就理解了整个系统的动态行为。</p>
+
+<p><b>链路一 · 信息收集链路（人机协作采集）</b></p>
+<ol>
+  <li><b>发起</b>：用户在浏览器操作，前端经 <code>HTTP</code> 调用 <code>/api/intake/*</code>。</li>
+  <li><b>分发</b>：<code>API 层</code> 做参数校验后，把请求转给 <code>src/intake.ts</code>。</li>
+  <li><b>生成问题</b>：<code>intake.ts</code> 把<b>完整对话历史</b>交给 LLM，让它"一次只问一题"——刻意避免一次抛出十个问题让用户无从下手。</li>
+  <li><b>降级</b>：若 LLM 不可用（超时 / 未配置），<code>intake.ts</code> 切换为<b>确定性兜底问题</b>（内置题库），保证流程不中断。</li>
+  <li><b>沉淀</b>：采集完成的摘要经 <code>/api/wiki/save</code> → <code>store.writeDocument</code> 写入 wiki。</li>
+</ol>
+<p><b>适用场景：</b>需求方自己也说不清要什么，需要通过多轮追问逐步澄清的场景。<b>注意事项：</b>"一次只问一题"是刻意设计，若改成批量提问，用户回答质量会显著下降。</p>
+
+<p><b>链路二 · 合同审查链路（本次新增，反向视角）</b></p>
+<ol>
+  <li><b>触发</b>：<code>scripts/</code> 直接调用 <code>contractDrivenReview()</code>——<b>绕过 HTTP</b>，因为耗时长，挂在 HTTP 上极易超时。</li>
+  <li><b>分句</b>：<code>splitClauses()</code> 按"第 X 条 / 段落"把合同切成片段，并过滤短于 24 字的无意义段。</li>
+  <li><b>反查</b>：每个片段调用 <code>hybridQuery</code> 在 <b>wiki 域</b>检索背景材料（限域检索，避免与合同原文混排）。</li>
+  <li><b>判定</b>：把"片段原文 + 检索到的 wiki 依据"一起交给 LLM，让它标记 <code>expected</code>（标准清单已覆盖）/ <code>unexpected</code>（清单没写但确有风险）。</li>
+  <li><b>增量落盘</b>：每处理完<b>一个片段就写一次</b> <code>-partial.md</code>，长任务被中断也不丢失已审结果。</li>
+</ol>
+<p><b>适用场景：</b>手握一份合同、怀疑"标准清单之外还有坑"的场景。<b>注意事项：</b>耗时与片段数成正比，必须用 <code>MAX_FRAGMENTS</code> 控规模（调试建议先设 5）。</p>
+
+<p><b>链路三 · 知识回流闭环（越用越聪明的关键）</b></p>
+<ol>
+  <li>采集或审查产出的内容写入 wiki 集合。</li>
+  <li><code>store.writeDocument</code> 因 <code>autoEmbedOnWrite</code> 开启，<b>写完立刻建索引</b>（无需额外的重建索引步骤）。</li>
+  <li>下一次检索（无论问答还是审查）即可命中这批新内容。</li>
+  <li>新内容又作为"知识库依据（wiki）"出现在新报告里，形成正循环。</li>
+</ol>
+<p><b>为什么重要：</b>没有这条闭环，知识库只进不出、逐渐陈旧；有了它，系统<b>每次使用都在为下一次积累语料</b>。本次报告中出现的《运营类项目风险地图》《中建八局二公司运营类风险要素清单》摘要等 wiki 依据，就是闭环已生效的直接证据。<b>易忽略点：</b>批量导入历史文档时应考虑<b>临时关闭</b> <code>autoEmbedOnWrite</code>，否则逐条建索引会显著拖慢导入速度。</p>
+
+<h4>2.1.4 核心模块逐一详解（定义 / 目的 / 原理 / 场景 / 注意事项）</h4>
+<table>
+  <tr><th style="width:110px">模块</th><th style="width:150px">定义与目的</th><th>工作原理</th><th style="width:120px">注意事项</th></tr>
+  <tr><td><b>混合检索</b><br><code>hybridQuery</code></td><td>同时用<b>向量相似度</b>与 <b>BM25 关键词</b>召回，再（可选）由 LLM 重排；兼顾"语义相近"与"关键词精确"</td><td>两路召回 → 融合打分 → 可选 LLM 重排 → 返回片段。本次新增 <code>collections</code>（限域）、<code>skipRerank</code>、<code>minScore</code> 三个<b>可选</b>参数</td><td>只用向量会漏掉精确条款号（如"第 12 条"）；只用关键词会漏掉同义表述——<b>必须混合</b></td></tr>
+  <tr><td><b>LLM 统一出口</b></td><td>所有模型调用走同一处，杜绝配置漂移</td><td>读取 <code>settings.llmBaseUrl / llmModel / llmApiKey</code>，请求 OpenAI 兼容 <code>/chat/completions</code>；带 <code>AbortController</code> 超时（默认 180 秒）</td><td><b>禁止</b>绕过该出口硬编码模型地址，否则会出现"问答能用、审查报错"的诡异现象</td></tr>
+  <tr><td><b>存储抽象</b><br><code>Store</code></td><td>屏蔽底层 SQLite 细节，向上提供文档读写能力</td><td><code>writeDocument()</code> 写 <code>.md</code>，并按 <code>autoEmbedOnWrite</code> 决定是否<b>立刻</b>建索引</td><td>写入即索引虽方便，但批量导入时应评估性能影响</td></tr>
+  <tr><td><b>信息收集</b><br><code>intake.ts</code></td><td>以多轮对话方式，把非结构化需求逐步问清楚</td><td>把完整历史给 LLM → 生成<b>下一个</b>问题 → 记录 → 循环；LLM 失效则回退内置兜底题库</td><td>单轮单问是刻意设计；兜底题库保证了<b>无 LLM 也能跑通</b></td></tr>
+  <tr><td><b>合同审查</b><br><code>contract-review/</code></td><td>把"检索 + 规则 + LLM 判定"封装成可复用的审查流水线</td><td>正向：逐条规则反查合同与 wiki → LLM 判定；反向：逐片段反查 wiki → LLM 标记预料内 / 外</td><td>反向耗时随片段数线性增长；任一片段 LLM 失败须<b>降级继续</b>而非崩溃</td></tr>
+  <tr><td><b>SQLite 持久化</b><br><code>db.ts</code></td><td>提供统一的数据库访问接口与迁移机制</td><td><code>openDatabase()</code> 打开连接；<code>db-schema.ts</code> 按版本号<b>顺序执行迁移</b>，每条建表均带 <code>IF NOT EXISTS</code></td><td>迁移必须<b>幂等</b>；新增表只能追加，<b>不得 ALTER 原表</b></td></tr>
+</table>
+
+<h3>2.2 关键目录 / 文件层级</h3>
+<p><b>怎么读这张表：</b>下表按<b>架构层级</b>从上到下排列（接入层 → 应用层 → 业务层 → 能力层 → 存储层）。"主要功能节点"列出该目录下<b>最值得先看的入口函数或文件</b>——想快速理解某个模块，从这些入口读起效率最高。</p>
+<table>
+  <tr><th style="width:80px">层级</th><th style="width:170px">路径</th><th style="width:90px">角色</th><th>主要功能节点（推荐阅读入口）</th></tr>
+  <tr><td><b>接入层</b></td><td><code>src/web/</code></td><td>前端</td><td><code>index.html</code> 布局；<code>app.js</code> UI 逻辑（含 intake 面板、wiki 保存、采集摘要存 wiki）；<code>style.css</code> 样式</td></tr>
+  <tr><td><b>接入层</b></td><td><code>scripts/</code></td><td>运行脚本</td><td><code>run-review-kindergarten.ts</code>（正向示例）、<code>run-contract-driven.ts</code>（反向示例）、<code>import-risk-rules.ts</code>（规则导入）</td></tr>
+  <tr><td><b>应用层</b></td><td><code>src/api/server.ts</code></td><td>HTTP API</td><td><code>/api/intake/*</code>（会话增/查/答/结束）、<code>/api/wiki/save</code>（问答沉淀为 wiki 页 + 血缘）、文档/集合路由，以及本次新增的 <code>/api/risk-rules</code>、<code>/api/review</code> 等</td></tr>
+  <tr><td><b>业务层</b></td><td><code>src/intake.ts</code></td><td>信息收集核心</td><td>基于完整对话历史用 LLM 一次只问一题；LLM 不可用时降级为确定性兜底问题</td></tr>
+  <tr><td><b>业务层</b></td><td><code>src/contract-review/</code></td><td>合同审查</td><td><code>review.ts</code>（<code>reviewContract</code> 正向 + <code>contractDrivenReview</code> 反向）、<code>prompt.ts</code>（提示词）、<code>db.ts</code>（三表 CRUD）、<code>risk-rules-seed.ts</code>（44 条 <code>OPS-*</code> 规则种子）</td></tr>
+  <tr><td><b>业务层</b></td><td><code>src/wiki/index-gen.ts</code></td><td>Wiki 索引</td><td>生成 wiki 导航 <code>index.md</code>（手工新增 wiki 文件后需重建才会出现在导航）</td></tr>
+  <tr><td><b>能力层</b></td><td><code>src/hybrid-search.ts</code></td><td>混合检索</td><td><code>hybridQuery()</code>：向量 + BM25 双路召回 → 融合打分 → 可选 LLM 重排；支持 <code>collections</code> 限域</td></tr>
+  <tr><td><b>能力层</b></td><td><code>src/settings.ts</code></td><td>配置 / LLM 出口</td><td><code>getSettings()</code>；统一提供 <code>llmBaseUrl</code> / <code>llmModel</code> / <code>llmApiKey</code>，为所有模型调用的唯一出口</td></tr>
+  <tr><td><b>存储层</b></td><td><code>src/store.ts</code></td><td>存储抽象</td><td><code>Store</code>；<code>writeDocument()</code> 写文档并（<code>autoEmbedOnWrite</code> 默认 true）自动增量建索引</td></tr>
+  <tr><td><b>存储层</b></td><td><code>src/db.ts</code></td><td>数据库接口</td><td>自定义 <code>Database</code> / <code>Statement</code> 最小接口；<code>openDatabase()</code>；本次补 <code>transaction</code> 类型声明</td></tr>
+  <tr><td><b>存储层</b></td><td><code>src/db-schema.ts</code></td><td>Schema 迁移</td><td><code>initializeSchema()</code> 按版本号顺序执行迁移链；本次<b>追加</b> v5 三表（<code>risk_rules</code> / <code>contracts_meta</code> / <code>analysis_records</code>）</td></tr>
+  <tr><td>—</td><td><code>docs/contract-review-workflow.html</code></td><td>工作流文档</td><td>记录阶段三规则驱动正向管线（反向轴待补）</td></tr>
+</table>
+<p><b>两点补充说明：</b>① 本次新增的模块<b>全部落在业务层与存储层</b>（<code>src/contract-review/</code> 与 v5 三表），接入层与应用层仅做最小增量，这从目录层面直观印证了"叠加而非重构"。② <code>src/db-schema.ts</code> 与 <code>src/settings.ts</code> 虽在既有表格中未被列出，却是理解本次改动的<b>关键文件</b>，故此处补入。</p>
+
+<h3>2.3 依赖关系要点</h3>
+<p><b>什么是依赖关系：</b>若模块 A 运行时需要调用模块 B，则称 <b>A 依赖 B</b>（图中箭头由 A 指向 B）。依赖关系决定了<b>改动的影响范围</b>——改动 B 可能影响所有依赖它的模块，改动 A 则只影响 A 自己。</p>
+<p><b>本系统四条核心依赖：</b></p>
+<table>
+  <tr><th style="width:150px">依赖关系</th><th>方向与含义</th><th>为什么这样设计</th></tr>
+  <tr><td><b>合同审查 → 知识库</b></td><td><code>contractDrivenReview</code> 依赖 <code>hybridQuery</code> 检索 wiki 集合，反向补全「标准规则清单未覆盖」的隐患</td><td>审查需要"制度依据"作参照；复用既有检索能力，不另建一套</td></tr>
+  <tr><td><b>信息收集 → 知识库</b></td><td>采集摘要经 <code>/api/wiki/save</code> → <code>store.writeDocument</code>，因 <code>autoEmbedOnWrite</code> 默认开启而<b>即时进索引、可检索</b></td><td>让采集成果立刻变成可检索资产，而非沉睡的孤立文本</td></tr>
+  <tr><td><b>业务层 → 统一 LLM 出口</b></td><td><code>intake.ts</code> 与 <code>review.ts</code> 共用同一 LLM 后端（本地 llama.cpp 或远程 chatComplete），经 <code>settings</code> 统一配置</td><td>避免"问答能跑、审查报错"的配置漂移；换模型只需改一处</td></tr>
+  <tr><td><b>所有持久化 → SQLite 统一接口</b></td><td>所有落库均经 <code>src/db.ts</code> 的 <code>Database</code> 接口（本次为其补 <code>transaction</code> 声明）</td><td>统一连接管理与迁移入口；屏蔽 <code>better-sqlite3</code> / <code>bun:sqlite</code> 差异</td></tr>
+</table>
+<p><b>依赖方向的关键结论：</b></p>
+<ul>
+  <li><b>无循环依赖</b>：业务层依赖能力层与存储层，但能力层 / 存储层<b>从不反向依赖</b>业务层。因此新增业务模块（如合同审查）不会影响既有能力。</li>
+  <li><b>能力层被多点复用</b>：<code>hybridQuery</code> 与 LLM 出口同时服务于问答（<code>/api/query</code>）、信息收集与合同审查——这是"改动要格外小心"的地方，故新增参数必须<b>可选且带默认值</b>。</li>
+  <li><b>脚本与前端是并列入口</b>：二者都只依赖应用层或直接依赖业务层，互不依赖，因此<b>去掉前端不影响脚本运行</b>（这对无人值守的批处理很重要）。</li>
+</ul>
+
+<h3>2.4 重点、常见误区与易忽略细节</h3>
+<p><b>最该记住的三条结论（若只记三件事）：</b></p>
+<ol>
+  <li><b>依赖严格单向、自上而下</b>（接入层 → 应用层 → 业务层 → 能力层 / 存储层）。任何"反向调用"都是设计异味，也是判断改动是否安全的第一准则。</li>
+  <li><b>检索与 LLM 属于共享能力层</b>，不是某个业务模块的私有物。新增业务必须复用，而非自建一套。</li>
+  <li><b>知识回流闭环是系统"越用越聪明"的根因</b>：写入即索引 → 下次可检索 → 成为新报告的制度依据。</li>
+</ol>
+<p><b>常见误区（按被发现频率排序）：</b></p>
+<table>
+  <tr><th style="width:180px">误区</th><th>正解</th></tr>
+  <tr><td>以为 <code>/api/review</code> 会跑<b>反向</b>审查</td><td>实际只跑<b>正向</b>（<code>reviewContract</code>）；反向因耗时长由 <code>scripts/</code> 直接调用，<b>绕过 HTTP</b> 以免请求超时</td></tr>
+  <tr><td>以为检索只用向量相似度</td><td>实际是<b>向量 + BM25 关键词</b>混合召回（再可选 LLM 重排）。只用向量会漏掉"第 12 条"这类精确条款号，只用关键词会漏掉同义表述</td></tr>
+  <tr><td>以为审查必须联网或依赖云模型</td><td>项目坚持 <b>100% 本地优先</b>；LLM 可指向本地 llama.cpp，也可指向远程 OpenAI 兼容服务，完全由 <code>settings</code> 决定</td></tr>
+  <tr><td>以为新增功能要改原表结构</td><td>实际只做<b>追加式迁移</b>（v5 三表，均 <code>IF NOT EXISTS</code>），从不 <code>ALTER</code> 原 <code>content</code> / <code>documents</code> 表</td></tr>
+  <tr><td>以为报告只在全部跑完才生成</td><td>反向管线<b>每处理完一个片段即增量落盘</b> <code>-partial.md</code>，中途被中断也能保留已审结果</td></tr>
+  <tr><td>以为"预料外风险"就是模型臆造</td><td>预料外指<b>标准清单未覆盖但确有风险</b>的项，报告中同步给出风险等级、修改建议与 wiki 制度依据，最终仍需人工复核确认</td></tr>
+</table>
+<p><b>容易被忽略的细节：</b></p>
+<ul>
+  <li><code>autoEmbedOnWrite</code> 默认开启——既是"写入即可检索"的便利来源，也是<b>批量导入变慢</b>的潜在原因（大批量导入时可考虑临时关闭）。</li>
+  <li><code>intake.ts</code> 内置<b>无 LLM 兜底</b>路径，因此未配置模型时信息收集仍可运行，只是问题质量下降——排查"问答变笨"时要想到这一点。</li>
+  <li><code>db.ts</code> 的 <code>Database</code> 是<b>自定义最小接口</b>，本次补 <code>transaction</code> 仅改 TS 类型、<b>不改运行时行为</b>（底层驱动本就提供该方法）。</li>
+  <li><code>MAX_FRAGMENTS</code> 不只是"调参"，而是<b>防超时的必要手段</b>：本次 23 个片段已产出 233 个风险点，全量约 40 片段耗时更长，建议先小批量验证再全量跑。</li>
+  <li>wiki 导航 <code>index.md</code> 由 <code>src/wiki/index-gen.ts</code> 生成，若手工新增 wiki 文件而<b>未重建索引</b>，该页不会出现在导航中（需执行 <code>qmd wiki index &lt;wiki集合&gt;</code>）。</li>
+  <li>反向审查的每条结论都同时带「合同映射」与「wiki 制度依据」两个来源，<b>缺一不可溯源</b>——这是双域检索（合同域 / wiki 域）存在的意义。</li>
+</ul>
+
+<h3>2.5 与整体主题的关联</h3>
+<p>本部分不是孤立的"架构展示"，它直接服务于前后两部分：</p>
+<ul>
+  <li><b>承接第一部分：</b>第一部分展示的 <b>23 片段 / 233 风险点 / 56% 预料外</b>，正是"链路二（合同审查）"跑出来的产物；报告中每条结论附带的 wiki 依据，则来自"链路三（知识回流闭环）"。</li>
+  <li><b>支撑第三部分：</b>第三部分逐项说明"改了哪个模块、为何兼容"，其判断依据正是本部分的<b>分层边界</b>与<b>依赖方向</b>——正因为新增代码集中在业务层（<code>src/contract-review/</code>）与存储层增量（v5 三表），且依赖严格单向、新增参数全部可选，才能断言"未破坏原 Retrieve / Deep Read / Ingest 三大能力"。</li>
+</ul>
+<p>简言之：<b>第一部分是"跑出来的结果"，本部分是"系统的结构"，第三部分是"改动的依据"，第四部分是"知识的来源"</b>。四者构成"跑通 → 看懂 → 改对 → 沉淀"的完整闭环，并在文末<b>第五部分</b>汇总为宏观结论。</p>
+
+<!-- ===================== 第三部分 ===================== -->
+<h2 class="page-break">第三部分　基于原项目的兼容性修改说明</h2>
+<p>本部分以原始上游项目 <a href="https://github.com/opendatalab/MinerU-Document-Explorer">opendatalab/MinerU-Document-Explorer</a>（TypeScript CLI + MCP 服务；核心能力为 <b>Retrieve 检索</b> / <b>Deep Read 深度阅读</b> / <b>Ingest Wiki 摄取</b>，底层为 SQLite + 向量/BM25 + LLM 重排）为基准，逐项说明需调整的具体模块、功能与实现方向，并明确与原始结构/逻辑的<b>兼容性</b>、<b>修改目标</b>、<b>预期效果</b>与<b>约束条件</b>。</p>
+
+<h3>3.1 总体定位与兼容总原则</h3>
+<p><b>背景与动机：</b>原始项目是一个<b>通用</b>的文档知识引擎（任意 PDF/DOCX/Markdown 都能检索与阅读）。但在实际业务（如工程/教育/能源行业的合同管理）中，用户需要的不是"泛泛地搜文档"，而是"拿着一份标准风险清单，逐条核对这份合同有没有坑"。这种需求在原项目里没有现成支撑——它需要把"检索能力"与"领域规则 + LLM 判定"组合起来。本改动的目的就是在不破坏原通用能力的前提下，<b>叠加</b>这样一层垂直应用。</p>
+<p><b>应用场景示例：</b>某幼儿园运营方拿到了一份《联营合作协议》，希望对照《中建八局二公司运营类风险要素清单》（44 项）快速知道"哪些条款踩了红线、哪些条款清单里根本没提但仍有隐患"。按原项目只能人工通读；叠加本层后，一条命令即可产出结构化评审报告。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整定位</b></td><td>在原生三大能力之上<b>叠加</b>一个「合同风险审查」垂直应用层，而非替换或重构核心检索 / 阅读 / 摄取逻辑。</td></tr>
+  <tr><td><b>兼容总原则</b></td><td>① 复用现有 <code>hybridQuery</code> / <code>Store</code> / <code>Database</code> / <code>settings</code>(LLM) / 索引与 wiki，不另起一套检索；② 新增代码集中落在 <code>src/contract-review/</code>，对核心文件只做<b>最小增量</b>；③ 数据模型通过<b>追加式迁移</b>扩展，<b>不 ALTER 原表</b>；④ 所有新增参数均为可选且带默认，旧调用方零感知。</td></tr>
+  <tr><td><b>修改目标</b></td><td>让原项目从一个「通用文档知识引擎」升级为「可对任意合同集合做结构化风险审查 + 预料外隐患发现」的领域化工具，同时保持其 agent-native / 100% 本地优先的原有定位。</td></tr>
+  <tr><td><b>预期效果</b></td><td>一份合同包即可产出：① 对照标准风险清单的逐项评审报告；② 从合同出发反查知识库、捕捉清单未覆盖的预料外风险报告；③ 可持久化、可列管、可复现的审查记录。</td></tr>
+  <tr><td><b>约束条件</b></td><td>不得破坏原 Retrieve/DeepRead/Ingest 行为；不得引入核心层新依赖；迁移必须幂等；LLM 调用必须走与原 <code>rag.ts</code> 同源的统一出口。</td></tr>
+</table>
+<p><b>分步骤落地策略（本次即按此顺序实施）：</b></p>
+<ol>
+  <li><b>识别复用点</b>：确认检索（<code>hybridQuery</code>）、存储（<code>Store</code>/<code>Database</code>）、配置（<code>settings</code>）、知识库（wiki 集合）均可直接复用，无需重写。</li>
+  <li><b>隔离新增代码</b>：所有审查专属逻辑放入独立目录 <code>src/contract-review/</code>，核心文件仅做最小增量。</li>
+  <li><b>追加数据模型</b>：在迁移链里新增三张表，保证老库升级不丢数据。</li>
+  <li><b>暴露入口</b>：先补 API 路由与 CLI 子命令，再补前端面板，层层递进。</li>
+  <li><b>闭环验证</b>：用 <code>scripts/</code> 脚本跑通正向 + 反向两条管线，并以增量落盘保证长任务可中断续跑。</li>
+</ol>
+<p><b>改动前 / 改动后能力对照（确保"叠加而非替换"）：</b></p>
+<table>
+  <tr><th style="width:130px">能力</th><th>改动前（原始项目）</th><th>改动后（本次叠加）</th></tr>
+  <tr><td>Retrieve 检索</td><td>全库混合检索（向量 + BM25）+ LLM 重排</td><td><b>行为不变</b>；仅新增可选「分域检索」（合同域 / wiki 域）参数</td></tr>
+  <tr><td>Deep Read 深度阅读</td><td>逐页精读问答</td><td><b>完全不变</b></td></tr>
+  <tr><td>Ingest Wiki 摄取</td><td>文档 → wiki 页</td><td><b>行为不变</b>；写入时可选 <code>autoEmbedOnWrite</code> 自动建索引</td></tr>
+  <tr><td>合同风险审查</td><td>无此能力</td><td>新增正向（规则驱动）+ 反向（合同驱动）双管线</td></tr>
+  <tr><td>审查结果持久化</td><td>无</td><td>新增 <code>risk_rules</code> / <code>contracts_meta</code> / <code>analysis_records</code> 三表</td></tr>
+  <tr><td>HTTP / CLI 入口</td><td><code>/api/query</code> 等、<code>qmd search/query</code></td><td>原入口不变，另追加审查路由与 <code>qmd contract</code> 子命令</td></tr>
+</table>
+<p><b>实测数据支撑（本次试运行，可直接复核）：</b>规则库导入 <b>44</b> 条（6 大类，ruleset 版本 <code>1.0.0</code>）；反向审查覆盖 <b>23</b> 个合同片段，识别风险点 <b>233</b> 项（预料内 102 / 预料外 131），<b>预料外占比 56%</b>；平均每个片段产出约 <b>10</b> 个风险点；报告落盘于 <code>reports-kindergarten/cd-&lt;slug&gt;-&lt;时间戳&gt;.md</code> 及同名 <code>-partial.md</code>。这组数据同时说明：<b>标准清单无法覆盖全部风险</b>（超过一半为清单未察觉项），反向管线确有价值。</p>
+
+<h3>3.2 模块一 · 新增合同审查引擎 <code>src/contract-review/</code></h3>
+<p><b>背景与动机：</b>为什么需要<b>两条</b>管线？因为单一视角都有盲区——<b>正向（规则驱动）</b>保证"标准清单上的 44 条一条都不漏"，但清单本身可能过时或不完整；<b>反向（合同驱动）</b>则从合同文本出发，让 LLM 自由发现"清单没写、但明显有风险"的预料外问题。两者互补才能既"合规覆盘"又"查漏补缺"。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td>新增整目录模块：<code>review.ts</code>（引擎）、<code>prompt.ts</code>（提示词）、<code>db.ts</code>（持久化 CRUD）、<code>risk-rules-seed.ts</code>（风险规则种子）。原项目无此目录，属纯新增。</td></tr>
+  <tr><td><b>实现方向</b></td><td>双向管线：<br>① <b>正向（规则驱动）</b> <code>reviewContract()</code>：抽取项目信息 → 逐条规则 <code>hybridQuery</code> 反查「合同域 + wiki 域」→ LLM 严格 JSON 判定（触发/未触发/未找到 + 等级 + 建议）→ 三段式报告 → 持久化；<br>② <b>反向（合同驱动）</b> <code>contractDrivenReview()</code>：<code>splitClauses()</code> 分句 → 每句反查 wiki → LLM 标记 <code>expected/unexpected</code> 风险 → 循环内<b>增量写 partial 报告</b> → 合成预料外报告。辅以 <code>retrieveForRule()</code>、<code>extractJsonObject/Array()</code> 等工具函数。</td></tr>
+  <tr><td><b>兼容方式</b></td><td>引擎只<b>消费</b>原项目公开能力（<code>hybridQuery</code>、<code>Store.db</code>、<code>getSettings</code>、<code>getWikiCollections</code>），不修改其核心实现；报告写入沿用原 <code>content/documents</code> 之外的独立表。</td></tr>
+  <tr><td><b>修改目标</b></td><td>把「检索 + LLM 判定」封装成可复用的合同审查流水线，对原项目零侵入。</td></tr>
+  <tr><td><b>预期效果</b></td><td>产出结构化风险报告（含 wiki 制度依据），并额外发现标准清单未覆盖的预料外隐患（本次试运行 23 片段中预料外占比约 56%）。</td></tr>
+  <tr><td><b>约束条件</b></td><td>必须复用 <code>hybridQuery</code> 而非自建检索；LLM 调用须走统一 <code>settings.llmBaseUrl/llmModel/llmApiKey</code>；任一步 LLM 失败须<b>降级而非崩溃</b>（保留 error finding / 空风险并继续）；禁止写原 <code>content</code>、<code>documents</code> 表。</td></tr>
+</table>
+<p><b>正向管线分步骤（<code>reviewContract</code>）：</b></p>
+<ol>
+  <li><code>getCollectionBodies()</code> 取合同集合全部激活文档正文（单文档则取该文档）。</li>
+  <li><code>chatComplete(REVIEW_SYSTEM_PROMPT, buildProjectInfoPrompt(...))</code> 抽取 10 项项目信息（名称/主体/期限/模式/投资/收益/退出/违约/保险/争议解决）。</li>
+  <li>对每条启用规则：<code>retrieveForRule()</code> 分别检索"合同域"与"wiki 域"，拼入 <code>buildRuleEvaluationPrompt</code> 交 LLM 输出严格 JSON。</li>
+  <li><code>composeReport()</code> 生成"项目信息 / 逐条评审 / 总体评价"三段式 markdown，并 <code>upsertContractMeta</code> + <code>insertAnalysisRecord</code> 落库。</li>
+</ol>
+<p><b>反向管线分步骤（<code>contractDrivenReview</code>）：</b></p>
+<ol>
+  <li><code>splitClauses()</code> 按"第X条/段落"把合同切成条款级片段，过滤短于 24 字的无意义段。</li>
+  <li>对每条款：<code>hybridQuery</code> 反查 wiki 背景，调用 <code>buildContractDrivenPrompt</code> 让 LLM 输出 <code>[{type, matchedRule, description, severity, suggestion}, ...]</code>。</li>
+  <li>每处理完一条即<b>增量写</b> <code>*-partial.md</code>，长任务被超时打断也能保留已审结果。</li>
+  <li>循环结束合成"预料内 / 预料外"占比概览与逐片段发现报告。</li>
+</ol>
+<p><b>关键示例 · 风险规则种子（<code>risk-rules-seed.ts</code> 真实片段，共 6 大类 / 44 项，ruleset <code>1.0.0</code>）：</b></p>
+<pre><code>// AUTO-GENERATED by scripts/build-risk-seed.ts — do not edit by hand.
+// Source: 中建八局二公司运营类风险要素清单.xlsx (6 大类 / 44 项)
+// Re-run the builder after editing the source spreadsheet.
+
+export interface RiskRuleSeed {
+  ruleId: string;        // 形如 OPS-001 … OPS-044
+  seq: number;           // 清单内序号，决定评审输出顺序
+  category: string;      // 所属大类，如「项目准入风险」
+  name: string;          // 风险点名称
+  description: string;   // 风险描述 —— 交给 LLM 的判定依据
+  basis: string | null;  // 制度 / 法规依据（报告中作为"制度依据"展示）
+  suggestion: string;    // 修改建议
+}
+
+export const RISK_RULES_SEED: RiskRuleSeed[] = [
+  {
+    ruleId: "OPS-001",
+    seq: 1,
+    category: "项目准入风险",
+    name: "业主资信风险",
+    description: "合作方存续能力与信用状况直接影响长达10-15年的运营收益回收。若业主出现破产、失信、资金链断裂等情况……",
+    basis: "《运营管理手册》第1.5条；《项目承接风险防控管理办法》禁止性条款第(3)(4)(5)条",
+    suggestion: "①通过国家企业信用信息公示系统、中国执行信息公开网等多渠道核查业主资信；\n②合同中设定业主“陈述与保证”条款……"
+  },
+  // … OPS-002 … OPS-044（其余 43 项结构相同）
+];</code></pre>
+<p>设计要点：规则以 <b>种子 + 幂等导入</b> 方式进入数据库，而非硬编码在逻辑里。这样业务方更新 Excel 清单后，只需重跑 <code>scripts/build-risk-seed.ts</code> 重新生成种子、再执行导入，即可完成规则库版本迭代，<b>无需改动任何审查代码</b>。</p>
+<p><b>关键示例 · 反向审查 LLM 输出片段：</b></p>
+<pre><code>[
+  { "type": "expected",  "matchedRule": "OPS-007",
+    "description": "约定了退出需提前 60 日书面通知", "severity": "低",
+    "suggestion": "建议补充未通知的违约金计算口径" },
+  { "type": "unexpected", "matchedRule": "",
+    "description": "乙方可将收益权质押给第三方，存在资金被挪用风险",
+    "severity": "高", "suggestion": "应禁止未经甲方书面同意的收益权质押" }
+]</code></pre>
+<p><b>关键示例 · 反向报告概览（<code>reports-kindergarten/cd-*-partial.md</code> 真实输出）：</b></p>
+<pre><code># 合同驱动·预料外风险发现报告
+
+> 生成时间：2026-09-20 09:54:03　|　合同集合：kindergarten-heating
+> 视角：从合同片段出发反查规则与知识库，重点捕捉标准风险清单（44 项）未覆盖的预料外问题。
+
+## 概览
+- 分析合同片段数：23
+- 识别风险点总数：233（预料内 102 / 预料外 131）
+- 预料外问题占比：56%</code></pre>
+<p><b>关键示例 · 反向报告逐片段发现（真实节选，单片段命中多条 <code>OPS-*</code> 规则）：</b></p>
+<pre><code>### 片段 2（段落12）
+1.1 乙方负责甲方的供热系统运维服务，包括供热系统的能源站建设、运行、维护、检修、技术改造等工作。
+
+1. 【预料内】条款1.1……将建设、技术改造及“等工作”纳入乙方负责范围，但未限定运维/维保
+   边界、费用承担及变更程序，乙方义务可能被无限扩大。（命中 OPS-024）
+   - 风险等级：高
+   - 修改/补充建议：将服务范围限定为运行、维护、检修及经甲方书面确认的专项改造清单；
+     删除或限定“建设”“等工作”；明确清单外费用由甲方承担或另行签约。
+2. 【预料内】……未约定建设/改造费用承担、预算限额、变更计价及超支责任。（命中 OPS-013）
+   - 风险等级：高
+
+- 知识库依据（wiki）：济南高新区空港新城幼儿园供热运维服务合同（样例）、
+  运营类项目风险地图、《中建八局二公司运营类风险要素清单》摘要（司函字〔2026〕63号）</code></pre>
+<p>该片段一次性命中 <code>OPS-024 / OPS-013 / OPS-011 / OPS-012 / OPS-004 / OPS-015 / OPS-002 / OPS-025 / OPS-026 / OPS-043 / OPS-023 / OPS-005</code> 共 <b>12</b> 条规则。这解释了两个关键现象：① <b>一条合同条款可同时触发多个风险维度</b>（故 23 个片段能产出 233 个风险点，平均每片段约 10 项）；② 报告末尾的「知识库依据（wiki）」来自<b>双域检索</b>，使每条结论都可溯源到制度文件。</p>
+<p><b>容错与降级设计（保障长任务不中断）：</b>反向管线循环内每处理完一个片段即<b>增量写</b> <code>-partial.md</code>；若某片段的 LLM 调用失败（超时 / 返回非 JSON / 限流），引擎<b>不抛错终止</b>，而是记入 <code>error</code> 类型发现项并继续下一个片段，最终报告仍完整可用。这正是本次能在超时后仍保留 23 片段结果的原因。</p>
+
+<h3>3.3 模块二 · 数据模型扩展 <code>src/db-schema.ts</code> + <code>src/db.ts</code></h3>
+<p><b>背景与动机：</b>审查结果若不落库，每次都要重跑 LLM（昂贵且慢），也无法"上次的报告去哪了"。因此需要三张与原索引/文档<b>解耦</b>的表来存放"规则库 / 合同档案 / 分析记录"，且必须做到升级旧库时<b>不破坏原有 content/documents 表</b>。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td>在 <code>db-schema.ts</code> 的迁移链中<b>追加</b>三张新表：<code>risk_rules</code>（风险规则库）、<code>contracts_meta</code>（合同元数据，版本化 upsert）、<code>analysis_records</code>（分析记录：报告路径 + 摘要 JSON）。并在 <code>src/db.ts</code> 的 <code>Database</code> 接口补 <code>transaction&lt;T&gt;()</code> 类型声明。</td></tr>
+  <tr><td><b>实现方向</b></td><td>以新迁移版本（如 v5）创建表，规则库通过 <code>importRiskRules()</code> 幂等种子导入；元数据用 <code>ON CONFLICT(docid) DO UPDATE</code> 做版本自增。</td></tr>
+  <tr><td><b>兼容方式</b></td><td>仅<b>追加</b>表与类型，<b>不改原表结构、不加列</b>；<code>transaction</code> 运行时在 <code>better-sqlite3</code>/<code>bun:sqlite</code> 本就存在，仅补 TS 类型，<b>零运行时影响</b>。</td></tr>
+  <tr><td><b>修改目标</b></td><td>让审查结果与规则库可持久化、可追溯、可列管，且不干扰原索引/文档存储。</td></tr>
+  <tr><td><b>预期效果</b></td><td>每次审查生成可回查的记录（<code>/api/analysis</code> 可列历史），规则库可随业务版本迭代。</td></tr>
+  <tr><td><b>约束条件</b></td><td>迁移必须<b>幂等</b>（可重复运行）；禁止改原表；新表命名与字段须与原 schema 风格一致；类型补齐不得改变既有方法签名。</td></tr>
+</table>
+<p><b>分步骤实现：</b></p>
+<ol>
+  <li>在 <code>db-schema.ts</code> 迁移链末尾新增 <code>CREATE TABLE IF NOT EXISTS</code> 三条语句（<code>IF NOT EXISTS</code> 保证幂等）。</li>
+  <li><code>risk-rules-seed.ts</code> 导出 44 条种子；<code>importRiskRules()</code> 先 <code>DELETE</code> 同 source+version 再批量 <code>INSERT</code>，重复导入不重复堆积。</li>
+  <li><code>contracts_meta</code> 用 <code>ON CONFLICT(docid) DO UPDATE SET version=excluded.version</code> 实现版本自增。</li>
+  <li><code>src/db.ts</code> 的 <code>Database</code> 接口补 <code>transaction</code> 方法签名，消除 <code>contract-review/db.ts</code> 的 TS2339 编译错误（运行时本就有该方法）。</li>
+</ol>
+<p><b>关键示例 · 迁移 v5 真实建表语句（<code>db-schema.ts</code>，全部带 <code>IF NOT EXISTS</code>）：</b></p>
+<pre><code>// —— 运营类风险规则库（由 中建八局二公司运营类风险要素清单.xlsx 种子导入）
+CREATE TABLE IF NOT EXISTS risk_rules (
+  rule_id          TEXT PRIMARY KEY,
+  seq              INTEGER NOT NULL,
+  category         TEXT NOT NULL,
+  name             TEXT,
+  description      TEXT,
+  basis            TEXT,
+  suggestion       TEXT,
+  match_type       TEXT,
+  severity_default TEXT,
+  ruleset_version  TEXT,
+  enabled          INTEGER,
+  source           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_risk_rules_category ON risk_rules(category);
+CREATE INDEX IF NOT EXISTS idx_risk_rules_enabled  ON risk_rules(enabled);
+
+// —— 合同元数据（一份合同一行，重跑时 version 自增）
+CREATE TABLE IF NOT EXISTS contracts_meta (
+  docid        TEXT PRIMARY KEY,
+  title        TEXT,
+  ctype        TEXT,                 -- pdf/docx/xlsx
+  collection   TEXT,
+  version      INTEGER,
+  content_hash TEXT,
+  tags         TEXT,                 -- JSON array
+  created_at   TEXT
+);
+
+// —— 分析记录（报告路径 + 摘要 JSON，可追溯）
+CREATE TABLE IF NOT EXISTS analysis_records (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  docid           TEXT NOT NULL,
+  ruleset_version TEXT NOT NULL,
+  report_path     TEXT,
+  report_docid    TEXT,
+  summary_json    TEXT,
+  status          TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_analysis_records_docid ON analysis_records(docid);</code></pre>
+<p><b>三表职责与数据量（本次实测）：</b></p>
+<table>
+  <tr><th style="width:120px">表</th><th>职责</th><th>本次数据量</th></tr>
+  <tr><td><code>risk_rules</code></td><td>风险规则库（可启停、可设默认等级）</td><td>44 行（<code>ruleset_version=1.0.0</code>，<code>source=xlsx:中建八局二公司运营类风险要素清单</code>）</td></tr>
+  <tr><td><code>contracts_meta</code></td><td>合同档案（版本化，<code>content_hash</code> 可判重）</td><td>每份被审合同 1 行，重跑 version+1</td></tr>
+  <tr><td><code>analysis_records</code></td><td>审查记录（报告路径 + 摘要 JSON）</td><td>每次审查 1 行，<code>/api/analysis</code> 可列历史</td></tr>
+</table>
+<p><b>持久化层 CRUD 清单（<code>src/contract-review/db.ts</code>）：</b>规则侧 <code>importRiskRules()</code>（幂等：先 <code>DELETE</code> 同 <code>source+ruleset_version</code> 再事务批量 <code>INSERT</code>）、<code>listRiskRules()</code>、<code>getRiskRule()</code>、<code>setRuleEnabled()</code>、<code>setRuleSeverityDefault()</code>；合同侧 <code>upsertContractMeta()</code>（<code>ON CONFLICT(docid) DO UPDATE</code> + version 自增）、<code>getContractMeta()</code>、<code>listContracts()</code>；记录侧 <code>insertAnalysisRecord()</code>、<code>getAnalysisRecord()</code>、<code>listAnalysisRecords()</code>。全部为<b>薄封装</b>，仅依赖传入的 <code>Database</code>，不触碰原 <code>content</code> / <code>documents</code> 表。</p>
+
+<h3>3.4 模块三 · 检索与索引能力增强 <code>hybrid-search.ts</code> / <code>store.ts</code> / <code>backends/indexing.ts</code></h3>
+<p><b>背景与动机：</b>原 <code>hybridQuery</code> 面向"在全库里搜一段文本"，但审查有两个特殊诉求：① 要能<b>限定检索范围</b>（只在合同里找依据、只在 wiki 里找制度），否则合同条文会和背景知识混在一起无法溯源；② 采集到的摘要希望<b>写入即建索引</b>，立刻可被后续审查检索到，形成"越用越聪明"的知识闭环。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td>为原 <code>hybridQuery</code> 增加可选参数 <code>collections</code>（分域检索：合同域 vs wiki 域）、<code>skipRerank</code>、<code>minScore</code>；<code>store.writeDocument</code> 支持 <code>autoEmbedOnWrite</code>（写入即增量建索引）。</td></tr>
+  <tr><td><b>实现方向</b></td><td>审查时以「合同集合」为审查对象、「wiki 集合」为背景参考，分两次 <code>hybridQuery</code> 调用保持来源清晰；采集摘要写入 wiki 即自动进索引，形成知识闭环。</td></tr>
+  <tr><td><b>兼容方式</b></td><td>新增参数全部<b>可选且带默认</b>，原调用方（<code>/api/query</code>、<code>/api/ask</code>、Deep Read 等）<b>行为与返回结构不变</b>。</td></tr>
+  <tr><td><b>修改目标</b></td><td>在不改核心检索语义的前提下，支撑「合同为对象、wiki 为背景」的双域检索与即时索引。</td></tr>
+  <tr><td><b>预期效果</b></td><td>反向审查可精准反查知识库；采集摘要写入后即可被检索，由孤立文本变为可检索资产。</td></tr>
+  <tr><td><b>约束条件</b></td><td>默认路径与返回契约必须向后兼容；<code>skipRerank</code>/<code>minScore</code> 仅作审查内加速用，不得影响默认重排质量。</td></tr>
+</table>
+<p><b>双域检索分步骤（以 <code>retrieveForRule</code> 为例）：</b></p>
+<pre><code>// 1) 只在"合同集合"里找对应条文
+const contractRes = await hybridQuery(store, query, { collection, limit: 4, skipRerank: true });
+// 2) 只在"全部 wiki 集合"里找制度依据，来源清晰可标注
+const wikiRes = await hybridQuery(store, query, { collections: wikiCols, limit: 4, skipRerank: true });</code></pre>
+<p><b>应用场景（真实命中结果）：</b>判断片段 2「1.1 乙方负责甲方的供热系统运维服务……」时：</p>
+<table>
+  <tr><th style="width:110px">检索域</th><th>命中内容</th><th>报告中的用途</th></tr>
+  <tr><td><b>合同域</b></td><td>供热运维服务合同原文「1.1 乙方负责……能源站建设、运行、维护、检修、技术改造」</td><td>作为「合同映射」——证明该条款确实存在</td></tr>
+  <tr><td><b>wiki 域</b></td><td>济南高新区空港新城幼儿园供热运维服务合同（样例）、运营类项目风险地图、《中建八局二公司运营类风险要素清单》摘要（司函字〔2026〕63 号）</td><td>作为「知识库依据」——提供制度层面的判定支撑</td></tr>
+</table>
+<p>报告里分别标注"合同写了什么"与"制度要求什么"，审查员一眼即可区分事实与依据。若不分区（用原全库检索），合同条文会与制度文本混排，<b>无法溯源、也无法判断风险究竟来自条款本身还是制度冲突</b>。</p>
+<p><b>参数兼容性细节：</b>新增的三个可选参数均有保守默认值——<code>collections</code> 缺省时等价于原全库检索；<code>skipRerank</code> 默认 <code>false</code>（保持原重排质量）；<code>minScore</code> 缺省不过滤。因此 <code>/api/query</code>、<code>/api/ask</code>、Deep Read 等原调用方传入的参数完全不变，<b>返回结构也逐字段一致</b>。</p>
+
+<h3>3.5 模块四 · API 层扩展 <code>src/api/server.ts</code></h3>
+<p><b>背景与动机：</b>引擎写好了，但前端面板和自动化脚本都需要一个稳定的 HTTP 入口来触发审查、读取规则库与历史记录。最安全的做法是<b>只往现有路由表追加新路径</b>，绝不改动原有 <code>/api/query</code>、<code>/api/ask</code> 等的行为，以免连带影响既有的 RAG / 摄取功能。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td>在既有路由体系中<b>新增</b>一组合同审查路由：<code>GET /api/risk-rules</code>、<code>POST /api/risk-rules/import</code>、<code>GET /api/contracts</code>、<code>GET /api/analysis</code>、<code>GET /api/analysis/:id</code>、<code>POST /api/review</code>；并由 <code>contract-review/review.js</code>、<code>contract-review/db.js</code> 导入。</td></tr>
+  <tr><td><b>实现方向</b></td><td>REST 风格，复用现有 <code>json(res,...)</code>、<code>collectBody()</code>、<code>safeParse()</code>、<code>store.internal</code> 与静态资源分发逻辑；<code>/api/review</code> 接收 <code>{collection, path?, tags?, rulesetVersion?}</code>，校验通过后调用 <code>reviewContract()</code>（<b>正向审查</b>）；反向审查因耗时长，当前由 <code>scripts/run-contract-driven.ts</code> 触发，未挂到 HTTP 路由，避免请求超时。</td></tr>
+  <tr><td><b>兼容方式</b></td><td><b>不改动</b>原 <code>/api/query</code>、<code>/api/ask</code>、<code>/api/intake/*</code>、<code>/api/wiki/save</code> 等既有路由行为与错误处理；新路由沿用现有鉴权/异常模式。</td></tr>
+  <tr><td><b>修改目标</b></td><td>为前端与脚本提供触发审查、拉取规则库与历史报告的 HTTP 入口。</td></tr>
+  <tr><td><b>预期效果</b></td><td>浏览器与 CLI 均可经同一服务完成合同审查闭环。</td></tr>
+  <tr><td><b>约束条件</b></td><td>路由路径须带明确前缀避免与原 API 冲突；不得降低原接口的安全/鉴权强度。</td></tr>
+</table>
+<p><b>分步骤实现：</b></p>
+<ol>
+  <li>在 <code>server.ts</code> 顶部 <code>import { reviewContract } from "../contract-review/review.js"</code> 与 <code>listContracts / listAnalysisRecords</code> 等。</li>
+  <li>在既有 <code>if (pathname === "/api/...")</code> 分支链后<b>追加</b>新分支（不触碰旧分支）。</li>
+  <li><code>POST /api/review</code> 解析 body → 组装 <code>ReviewOptions</code>/<code>ContractDrivenOptions</code> → <code>await reviewContract(...)</code> → <code>json(res, 200, result)</code>。</li>
+</ol>
+<p><b>新增路由清单（全部追加在既有路由链之后）：</b></p>
+<table>
+  <tr><th style="width:70px">方法</th><th style="width:190px">路径</th><th>说明 / 响应</th></tr>
+  <tr><td>GET</td><td><code>/api/risk-rules</code></td><td>规则库列表，支持 <code>?enabledOnly=true</code>；响应 <code>{ rules: RiskRuleRow[] }</code></td></tr>
+  <tr><td>POST</td><td><code>/api/risk-rules/import</code></td><td>幂等导入 44 条种子；响应 <code>{ status:"ok", count, rulesetVersion:"1.0.0" }</code></td></tr>
+  <tr><td>GET</td><td><code>/api/contracts</code></td><td>合同档案列表；响应 <code>{ contracts: ContractMetaRow[] }</code></td></tr>
+  <tr><td>GET</td><td><code>/api/analysis</code></td><td>历史审查记录，支持 <code>?docid=</code> 过滤；响应 <code>{ records: [...] }</code></td></tr>
+  <tr><td>GET</td><td><code>/api/analysis/:id</code></td><td>单条记录；命中 <code>{ record }</code>，未命中 <code>404 {"error":"分析记录不存在"}</code></td></tr>
+  <tr><td>POST</td><td><code>/api/review</code></td><td>触发正向审查；缺 <code>collection</code> 返回 <code>400</code>，其余异常返回 <code>500 {error}</code></td></tr>
+</table>
+<p><b>关键示例 · 调用序列：</b></p>
+<pre><code># ① 导入风险规则（幂等，重复执行不重复堆积）
+curl -X POST http://localhost:8181/api/risk-rules/import
+# → {"status":"ok","count":44,"rulesetVersion":"1.0.0"}
+
+# ② 查看当前启用中的规则
+curl "http://localhost:8181/api/risk-rules?enabledOnly=true"
+
+# ③ 对合同集合跑正向审查
+curl -X POST http://localhost:8181/api/review \
+  -H 'Content-Type: application/json' \
+  -d '{"collection":"kindergarten-heating","path":"供热运维服务合同.docx"}'
+
+# 入参缺失时的校验响应
+# → HTTP 400  {"error":"缺少合同集合名称 collection"}</code></pre>
+<p><b>关键示例 · <code>/api/review</code> 响应结构：</b></p>
+<pre><code>{
+  "docid": "…",
+  "analysisId": 12,
+  "reportPath": "reports-kindergarten/8a4c23-1789875719936.md",
+  "projectInfo":  { "项目名称": "…", "合作主体": "…", "合作期限": "…", … },
+  "overall":      "总体评价文本",
+  "specialChecks":[{ "id": "…", "label": "…" }],
+  "findings": [
+    { "ruleId": "OPS-024", "status": "触发", "severity": "高",
+      "contractMapping": "1.1 乙方负责……能源站建设、技术改造",
+      "wikiBasis": "《中建八局二公司运营类风险要素清单》摘要（司函字〔2026〕63号）",
+      "suggestion": "将服务范围限定为运行、维护、检修及经甲方书面确认的专项改造清单" }
+  ],
+  "reportMarkdown": "# 合同风险评审报告\n…"
+}</code></pre>
+<p><b>兼容性要点：</b>所有新路由均<b>追加</b>在原有 <code>/api/query</code>、<code>/api/ask</code>、<code>/api/intake/*</code>、<code>/api/wiki/save</code> 之后，采用相同的 <code>json(res, code, payload)</code> 输出与 <code>try/catch → 500 {error}</code> 异常模式，因此前端与既有客户端<b>无需任何改造</b>，鉴权强度亦不降低。</p>
+
+<h3>3.6 模块五 · CLI 扩展 <code>src/cli/qmd.ts</code></h3>
+<p><b>背景与动机：</b>并非所有人都在用 Web；运维/合规人员更习惯在终端批量跑、把报告丢进 CI 或定时任务。因此要把同样的引擎暴露成 <code>qmd</code> 子命令，与原有 <code>search</code>/<code>query</code> 风格一致，降低上手成本。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td>在 <code>qmd</code> 命令下<b>新增</b>子命令（建议 <code>qmd contract review</code>、<code>qmd risk-rules import</code>），与原有 <code>search</code>/<code>query</code>/<code>vsearch</code> 并列。</td></tr>
+  <tr><td><b>实施状态</b></td><td><b>规划中（本次未实施）</b>。当前 <code>src/cli/qmd.ts</code> 尚未加入上述子命令，审查能力的可复现入口由 <code>scripts/</code> 承担。列于此是为了给出与上游一致的后续落地方向，读者据此可自行补齐。</td></tr>
+  <tr><td><b>实现方向</b></td><td>复用原 <code>isMain</code> 入口与参数解析风格，直接调用 <code>reviewContract</code> / <code>importRiskRules</code>。</td></tr>
+  <tr><td><b>兼容方式</b></td><td>仅追加分支，不改原子命令逻辑；不引入核心外新依赖。</td></tr>
+  <tr><td><b>修改目标</b></td><td>提供命令行可复现入口，便于批处理与自动化。</td></tr>
+  <tr><td><b>预期效果</b></td><td>可在终端一键完成规则导入与合同审查，输出 markdown 报告。</td></tr>
+  <tr><td><b>约束条件</b></td><td>参数名/输出格式须贴合原 CLI 约定；长运行须支持中断续跑与进度输出。</td></tr>
+</table>
+<p><b>当前可复现入口（已实现，等价 CLI 作用）：</b></p>
+<pre><code># 导入风险规则种子（幂等）——等价于规划中的 qmd risk-rules import
+bun scripts/import-risk-rules.ts
+
+# 跑正向审查（规则驱动）
+bun scripts/run-review-kindergarten.ts
+
+# 跑反向审查（合同驱动），用小批量先验证链路
+$env:MAX_FRAGMENTS=5; bun scripts/run-contract-driven.ts</code></pre>
+<p><b>后续补齐 CLI 时的落地要点（保持与原 CLI 兼容）：</b></p>
+<ol>
+  <li>在原 <code>qmd.ts</code> 的参数解析分支链<b>末尾追加</b>，不改动 <code>search</code>/<code>query</code>/<code>vsearch</code> 既有分支与输出格式。</li>
+  <li>子命令直接复用 <code>reviewContract()</code> / <code>importRiskRules()</code>，不重复实现逻辑。</li>
+  <li>长任务须复用脚本已验证的<b>分批 + 增量落盘</b>机制（<code>MAX_FRAGMENTS</code> 与 <code>-partial.md</code>），并输出逐片段进度。</li>
+  <li>错误提示与退出码沿用原 CLI 约定，避免破坏已有自动化脚本。</li>
+</ol>
+
+<h3>3.7 模块六 · 配置与统一 LLM 出口 <code>src/settings.ts</code></h3>
+<p><b>背景与动机：</b>原项目已有成熟的 LLM 配置（<code>llmBaseUrl</code>/<code>llmModel</code>/<code>llmApiKey</code>，与 <code>rag.ts</code> 共用）。如果审查模块另搞一套模型配置，就会出现"问答能用、审查报错"的配置漂移。因此审查的 <code>chatComplete()</code> 必须<b>复用同一出口</b>，并只是按场景微调温度/超时。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td>复用并确认 <code>llmBaseUrl</code> / <code>llmModel</code> / <code>llmApiKey</code> 配置项；<code>review.ts</code> 的 <code>chatComplete()</code> 与原 <code>rag.ts</code> 同源（OpenAI 兼容 <code>/chat/completions</code>）。</td></tr>
+  <tr><td><b>实现方向</b></td><td>审查 LLM 调用统一读取 <code>getSettings()</code>，优先环境变量回退；温度/超时按评审场景细分（信息抽取 0.1、规则判定 0.2、反向 0.3）。</td></tr>
+  <tr><td><b>兼容方式</b></td><td>不新增全局配置键（或仅在白名单内），与上游配置层完全兼容；复用原配置读写与合并逻辑。</td></tr>
+  <tr><td><b>修改目标</b></td><td>统一问答模型出口，避免重复实现与配置漂移。</td></tr>
+  <tr><td><b>预期效果</b></td><td>用户用同一套 LLM 配置即可驱动检索问答与合同审查。</td></tr>
+  <tr><td><b>约束条件</b></td><td>不得绕过原配置层硬编码模型地址；缺失配置时须给出与原项目一致的可读报错。</td></tr>
+</table>
+<p><b>关键示例 · 统一读取配置（与 <code>rag.ts</code> 同源）：</b></p>
+<pre><code>const settings = getSettings();
+const baseUrl = (settings.llmBaseUrl || process.env.LLM_BASE_URL || "").replace(/\/+$/, "");
+const model   = settings.llmModel || process.env.LLM_MODEL || "";
+// 缺失时抛出与原项目一致的可读错误，而非静默失败
+
+// 单一 fetch 出口：OpenAI 兼容 /chat/completions，带 AbortController 超时
+const controller = new AbortController();
+const timer = setTimeout(() => controller.abort(), opts?.timeoutMs ?? 180_000);
+…
+temperature: opts?.temperature ?? 0.2,
+stream: false,</code></pre>
+<p><b>分场景参数取值（真实配置，兼顾确定性与创造性）：</b></p>
+<table>
+  <tr><th style="width:170px">调用场景</th><th style="width:90px">temperature</th><th>取值理由</th></tr>
+  <tr><td>项目信息抽取</td><td><code>0.1</code></td><td>需从合同原文忠实抽取 10 项事实字段，温度越低越稳定、越少臆造</td></tr>
+  <tr><td>逐条规则判定</td><td><code>0.2</code>（默认）</td><td>需在"严格按规则判定"与"理解条款语义"之间平衡</td></tr>
+  <tr><td>总体评价生成</td><td><code>0.2</code></td><td>同上，输出谈判优先级排序</td></tr>
+  <tr><td>反向（合同驱动）风险发现</td><td><code>0.3</code></td><td>需鼓励模型跳出清单、发现预料外隐患，故略高的创造性</td></tr>
+</table>
+<p>超时统一为 <b>180 秒</b>（<code>AbortController</code>），配合"失败降级不崩溃"策略，确保单个片段卡住不会拖垮整轮审查。</p>
+
+<h3>3.8 模块七 · 前端 UI 扩展 <code>src/web/</code></h3>
+<p><b>背景与动机：</b>合规/法务同学并不想碰命令行。他们需要在浏览器里"选个集合 → 点一下审查 → 看彩色报告"。同时，信息收集（intake）产出的摘要也应能一键沉淀成 wiki，反哺后续审查——这就是"知识闭环"的最后一环。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td><code>index.html</code> / <code>app.js</code> / <code>style.css</code> 新增合同审查面板：规则库管理、触发审查、报告展示、预料外风险视图，并复用既有 QA/wiki 面板模式。</td></tr>
+  <tr><td><b>实现方向</b></td><td>新增独立区块与选择器，沿用现有 <code>qa-wiki-save</code> / <code>qa-extra-actions</code> 等样式类；采集完成区新增「存为 Wiki 页」按钮调用 <code>/api/wiki/save</code>。</td></tr>
+  <tr><td><b>兼容方式</b></td><td><b>不改动</b>既有 intake/wiki 面板逻辑；新增 UI 为独立模块，样式与交互沿用原体系。</td></tr>
+  <tr><td><b>修改目标</b></td><td>在浏览器内闭环完成「上传合同 → 审查 → 查看报告」，并打通「采集摘要 → wiki 知识资产」。</td></tr>
+  <tr><td><b>预期效果</b></td><td>非技术用户也能可视化完成合同风险审查与知识沉淀。</td></tr>
+  <tr><td><b>约束条件</b></td><td>不得破坏现有面板；新增样式不污染全局；写入 wiki 须沿用原 <code>/api/wiki/save</code> 契约。</td></tr>
+</table>
+<p><b>前端分步骤交互：</b></p>
+<ol>
+  <li>用户在合同审查面板选择目标集合（复用 wiki 集合选择器模式）。</li>
+  <li>点击"运行审查"，前端 <code>POST /api/review</code> 并轮询/展示进度。</li>
+  <li>报告渲染为三段式：项目信息 → 逐条评审（含触发状态、等级、wiki 依据）→ 总体谈判优先级。</li>
+  <li>在信息收集完成区点"存为 Wiki 页"，摘要经 <code>/api/wiki/save</code> 写入即自动建索引，供下次审查反查。</li>
+</ol>
+<p><b>报告在前端的三段式渲染结构：</b></p>
+<table>
+  <tr><th style="width:120px">段落</th><th>渲染内容</th><th style="width:130px">数据来源</th></tr>
+  <tr><td>① 项目信息</td><td>10 项结构化字段（名称 / 主体 / 期限 / 模式 / 投资 / 收益 / 退出 / 违约 / 保险 / 争议解决）</td><td><code>projectInfo</code></td></tr>
+  <tr><td>② 逐条评审</td><td>每条规则的触发状态、风险等级、合同映射、wiki 制度依据、修改建议；按等级着色便于快速定位</td><td><code>findings[]</code></td></tr>
+  <tr><td>③ 总体评价</td><td>整体风险画像与谈判优先级排序</td><td><code>overall</code></td></tr>
+</table>
+<p><b>知识闭环示例（本次已生效）：</b>intake 采集到的"供热运维服务范围"摘要点「存为 Wiki 页」后，经 <code>/api/wiki/save</code> 写入 wiki 集合并<b>自动建索引</b>；下一次对同类合同做反向审查时，<code>hybridQuery</code> 的 wiki 域即可命中该页，并作为「知识库依据（wiki）」出现在报告末尾。本次报告中出现的<b>《运营类项目风险地图》</b>、《中建八局二公司运营类风险要素清单》摘要（司函字〔2026〕63 号）等依据，正是这一闭环生效的直接证据——采集越多，后续审查的制度依据越充分。</p>
+
+<h3>3.9 模块八 · 运行脚本与种子 <code>scripts/</code> + <code>risk-rules-seed.ts</code></h3>
+<p><b>背景与动机：</b>引擎、API、CLI 都就绪后，还需要"开箱即用"的演示与种子：一条脚本把 44 条规则灌进库，一条脚本跑通完整审查。这对"别人拿到这份改动如何复现"至关重要。</p>
+<table>
+  <tr><th style="width:140px">维度</th><th>说明</th></tr>
+  <tr><td><b>调整模块/功能</b></td><td>新增 <code>scripts/run-review-kindergarten.ts</code>（正向示例）、<code>scripts/run-contract-driven.ts</code>（反向示例）、<code>scripts/import-risk-rules.ts</code>（规则种子导入）等独立脚本。</td></tr>
+  <tr><td><b>实现方向</b></td><td>脚本直接复用 <code>hybridQuery</code> / <code>chatComplete</code> / <code>listRiskRules</code>，支持 <code>MAX_FRAGMENTS</code> 等环境变量控制规模，逐片段打印进度。</td></tr>
+  <tr><td><b>兼容方式</b></td><td>脚本独立存在，<b>不污染核心</b>；可随主程序一起用 <code>bun</code> 运行。</td></tr>
+  <tr><td><b>修改目标</b></td><td>提供可复现演示、种子导入与中断续跑示例。</td></tr>
+  <tr><td><b>预期效果</b></td><td>便于在新环境一键复现双向审查流程与结果。</td></tr>
+  <tr><td><b>约束条件</b></td><td>脚本不得假设特定绝对路径；长任务须支持分批（<code>MAX_FRAGMENTS</code>）以防超时。</td></tr>
+</table>
+<p><b>新增脚本清单：</b></p>
+<table>
+  <tr><th style="width:210px">脚本</th><th>作用</th></tr>
+  <tr><td><code>scripts/build-risk-seed.ts</code></td><td>由 Excel 清单<b>自动生成</b> <code>risk-rules-seed.ts</code>（AUTO-GENERATED，勿手工改）</td></tr>
+  <tr><td><code>scripts/import-risk-rules.ts</code></td><td>幂等导入规则库（44 条，<code>ruleset_version=1.0.0</code>）</td></tr>
+  <tr><td><code>scripts/run-review-kindergarten.ts</code></td><td>跑<b>正向</b>（规则驱动）审查示例，输出三段式报告</td></tr>
+  <tr><td><code>scripts/run-contract-driven.ts</code></td><td>跑<b>反向</b>（合同驱动）审查，逐片段增量落盘</td></tr>
+</table>
+<p><b>关键示例 · 可复现运行（防超时分批）：</b></p>
+<pre><code>cd e:/wuzhu/Documents/VS Code Gong/MinerU-Document-Explorer
+
+# ① 灌入 44 条规则（幂等，可反复执行）
+bun scripts/import-risk-rules.ts
+
+# ② 先用小批量验证链路（只审前 5 个片段，快速确认 LLM 与检索可用）
+$env:MAX_FRAGMENTS=5; bun scripts/run-contract-driven.ts
+
+# ③ 全量运行（约 40 片段，建议本机连续跑，避免超时中断）
+bun scripts/run-contract-driven.ts</code></pre>
+<p><b>本次实测运行数据与产物：</b></p>
+<table>
+  <tr><th style="width:140px">项目</th><th>实测结果</th></tr>
+  <tr><td>规则导入</td><td>44 条成功入库，重复执行条数不变（幂等验证通过）</td></tr>
+  <tr><td>反向审查规模</td><td>23 个合同片段（受 <code>MAX_FRAGMENTS</code> 与运行时长限制）</td></tr>
+  <tr><td>风险点产出</td><td>233 项（预料内 102 / 预料外 131），预料外占比 <b>56%</b></td></tr>
+  <tr><td>落盘产物</td><td><code>reports-kindergarten/cd-&lt;slug&gt;-&lt;时间戳&gt;.md</code>（完整版）+ 同名 <code>-partial.md</code>（增量保障）</td></tr>
+  <tr><td>中断表现</td><td>超时中断后 <code>-partial.md</code> 仍保留已审片段结果，可直接续用</td></tr>
+</table>
+<p><b>环境变量约定：</b><code>MAX_FRAGMENTS</code> 控制反向审查的片段上限（调试建议 5，全量可不设）；脚本<b>不假设绝对路径</b>，均基于项目根与既有配置解析，可在任意克隆副本上直接运行。</p>
+
+<h3>3.10 文件清理与总体约束清单</h3>
+<p><b>背景与动机：</b>改动过程中产生了大量调试日志与临时 dump 文件（repro 调试、serve 日志等），它们与功能无关，留在根目录既杂乱又容易被误提交。清理它们是"收尾卫生"，但必须<b>先确认不被进程占用、不属活跃功能</b>再删。</p>
+<table>
+  <tr><th style="width:140px">类别</th><th>明细 / 约束</th></tr>
+  <tr><td>清理（无功能依赖）</td><td>已删除 17 个运行时日志 / 调试 dump / SQLite 临时文件（<code>*.log</code>、<code>body.json</code>、<code>repro_resp.json</code>、<code>repro-index.sqlite-shm/wal</code>、<code>.tmp_read_pages.ts</code> 等）；<code>serve_restart.*.log</code> 因被 qmd 服务占用句柄（<code>EBUSY</code>）保留，停服后可删。</td></tr>
+  <tr><td>保留（用户确认）</td><td><code>reindex_yunyingwiki.ts</code>、<code>verify_yunyingwiki.ts</code>、<code>scripts/</code> 其余 review 脚本、<code>docs/contract-review-workflow.html</code>、<code>reports-kindergarten/</code>、<code>xuexi/</code> 等疑似活跃功能配套，全部保留以免丢失工作。</td></tr>
+  <tr><td>总体约束清单</td><td>① 不破坏原 Retrieve / Deep Read / Ingest 三大能力；② 新增代码隔离于 <code>src/contract-review/</code>；③ 数据迁移仅追加、幂等；④ LLM 走统一出口 <code>settings</code>；⑤ 所有新增参数可选且向后兼容；⑥ 维持原 100% 本地优先原则，不引入云端强依赖。</td></tr>
+  <tr><td>对整体行为影响</td><td>能力增强（双向审查 + 知识闭环）、编译健康（补 <code>Database.transaction</code> 类型）、仓库整洁；<b>无破坏性改动</b>——正向审查、既有 API、前端其他面板行为均未改变，反向审查为纯新增层。</td></tr>
+  <tr><td>原模块 → 改动映射</td><td>
+    <code>Retrieve</code>(hybrid-search/store) → 增补可选参数、双域检索；<br>
+    <code>Ingest</code>(wiki/store) → 采集摘要自动进索引，打通知识闭环；<br>
+    <code>API/MCP</code>(server) → 追加合同审查路由；<br>
+    <code>CLI</code>(qmd) → 追加 contract 子命令；<br>
+    <code>Config</code>(settings) → 复用既有 LLM 出口；<br>
+    <code>Web</code> → 追加审查面板；<br>
+    新增 <code>src/contract-review/</code> 与 <code>db-schema</code> 三表 = 纯增量层。
+  </td></tr>
+</table>
+<p><b>兼容性回归验证方法（供 reviewer 复核"未破坏原能力"）：</b></p>
+<ol>
+  <li><b>检索回归</b>：改动前后对同一 query 调用 <code>qmd query</code> / <code>/api/query</code>，比对命中集合与排序是否一致（新增参数缺省，应无差异）。</li>
+  <li><b>摄取回归</b>：执行一次 <code>Ingest Wiki</code>，确认 wiki 页生成与索引行为不变（<code>autoEmbedOnWrite</code> 默认关闭）。</li>
+  <li><b>Deep Read 回归</b>：执行一次深度阅读问答，确认输出格式未变。</li>
+  <li><b>迁移幂等验证</b>：对已有旧库连续启动两次服务，确认 <code>risk_rules</code> 仍为 44 条、原 <code>content</code>/<code>documents</code> 表数据条数不变。</li>
+  <li><b>新增能力验证</b>：跑 <code>scripts/run-contract-driven.ts</code>，确认产出报告且 <code>-partial.md</code> 存在。</li>
+</ol>
+<p><b>风险与缓解（诚实地说明边界）：</b></p>
+<table>
+  <tr><th style="width:150px">已知风险</th><th>缓解方式</th></tr>
+  <tr><td>反向审查耗时长，HTTP 场景易超时</td><td>反向不挂 HTTP 路由，仅由脚本触发；循环内增量落 <code>-partial.md</code>；<code>MAX_FRAGMENTS</code> 控规模</td></tr>
+  <tr><td>LLM 返回非严格 JSON 导致解析失败</td><td><code>extractJsonObject/Array()</code> 容错提取；失败降级为 <code>error</code> 发现项并继续，不中断整轮</td></tr>
+  <tr><td>规则库随业务频繁变更</td><td>种子 + 幂等导入 + <code>ruleset_version</code> 版本化，更新 Excel 重跑生成即可，无需改代码</td></tr>
+  <tr><td>预料外风险存在误报可能</td><td>报告中同时给出「风险等级」与「修改建议」，并附 wiki 制度依据，交由人工复核确认</td></tr>
+  <tr><td>CLI 子命令尚未补齐</td><td>当前由 <code>scripts/</code> 承担入口；补齐方案见 3.6 落地要点，不影响现有功能</td></tr>
+</table>
+
+<div class="card info">
+  <p style="margin:2px 0"><b>附：本机完整运行命令</b></p>
+  <pre><code>cd e:/wuzhu/Documents/VS Code Gong/MinerU-Document-Explorer
+# 全量（约 40 片段，建议在本机连续运行以免超时）
+bun scripts/run-contract-driven.ts
+# 先小批量验证
+$env:MAX_FRAGMENTS=5; bun scripts/run-contract-driven.ts</code></pre>
+  <p style="margin:4px 0 2px">运行完成后产物：<code>reports-kindergarten/cd-&lt;slug&gt;-&lt;时间戳&gt;.md</code>（完整版）与同名的 <code>-partial.md</code>（中断保障）。若希望反向结果也出现在 wiki 导航索引，可另跑 <code>qmd wiki index &lt;wiki集合&gt;</code>。</p>
+</div>
+
+<h2 class="page-break">第四部分　知识资产归纳：docs 与 xuexi</h2>
+<p><b>本部分定位：</b>前三个部分讲的是"本次做了什么"，本部分讲的是"<b>支撑这一切的知识从哪来</b>"。项目根目录下有两个知识文件夹：<code>docs/</code> 存放<b>官方能力文档</b>（系统是什么、怎么用），<code>xuexi/</code> 存放<b>工程实践经验文档</b>（实际跑起来遇到什么、怎么解决）。二者一"应然"一"实然"，共同构成本次工作的知识底座。</p>
+
+<h3>4.1 知识资产全景与融合思路</h3>
+<table>
+  <tr><th style="width:80px">文件夹</th><th style="width:230px">文件</th><th>性质与作用</th></tr>
+  <tr><td><b><code>docs/</code></b></td><td><code>architecture.md</code>、<code>cli.md</code>、<code>mcp.md</code>、<code>quickstart.md</code>、<code>sdk.md</code>、<code>SYNTAX.md</code>、<code>tutorial-zh.md</code>、<code>contract-review-workflow.html</code></td><td><b>能力与设计（应然）</b>：上游项目架构、CLI/SDK/MCP 用法、查询语法、安装部署；以及本次合同审查工作流文档。回答"系统能做什么、该怎么用"</td></tr>
+  <tr><td><b><code>xuexi/</code></b></td><td>14 个 HTML / DOCX / CJS，主题含：QMD 部署、SSE 流式改造、检索链路排障、向量索引重建复盘、Wiki 建库、对外提问接口、账号登录、每用户配置</td><td><b>实践与踩坑（实然）</b>：真实环境中的问题现象、根因分析、解决方案与实测数据。回答"实际跑起来会怎样、坑在哪"</td></tr>
+</table>
+<p><b>融合逻辑：</b>把两者放在一起读才有完整价值——<code>docs/</code> 告诉你"设计上应该这样工作"，<code>xuexi/</code> 告诉你"实际中它为何没这样工作、改了哪里才好"。本次工作的许多决策（复用混合检索、默认跳过重排、坚持本地模型、增量落盘）都能在这两份资料中找到依据。下文按<b>"能力体系 → 工程经验 → 高价值清单 → 与本次改动的关联"</b>四层展开。</p>
+
+<h3>4.2 上游能力体系（源自 <code>docs/</code>）</h3>
+
+<h4>4.2.1 项目定位与核心闭环</h4>
+<ul>
+  <li><b>定位</b>：MinerU Document Explorer（命令入口统一为 <code>qmd</code>），把 Markdown / PDF / DOCX / PPTX 变成"<b>可搜索、可精读、可持续写入的知识库</b>"。</li>
+  <li><b>核心闭环</b>：<b>检索 → 精读 → 写回</b>——<code>query/search</code> 找文件 → <code>doc_toc/doc_read/doc_grep</code> 精读 → <code>doc_write</code> 沉淀为 Wiki 页。让 Agent"先找、再读、再回答，并留下可追溯的知识产物"。</li>
+  <li><b>LLM Wiki Pattern</b>：LLM 增量构建、维护互相 <code>[[wikilink]]</code> 连接的 Wiki 页，知识呈"复利式"累积。<b>这正是本报告 2.1.3"知识回流闭环"的理论出处。</b></li>
+  <li><b>一切本地</b>：GGUF 本地模型（embedding / rerank / query-expansion）+ SQLite 存储，无需云端。</li>
+</ul>
+
+<h4>4.2.2 三种检索模式与混合检索管线</h4>
+<table>
+  <tr><th style="width:90px">模式</th><th style="width:120px">实现</th><th>特点与适用</th></tr>
+  <tr><td><code>search</code></td><td>BM25 / FTS5 全文</td><td>快、零模型、零门槛；适合专有名词、错误码、编号</td></tr>
+  <tr><td><code>vsearch</code></td><td>向量语义</td><td>同义 / 概念召回</td></tr>
+  <tr><td><code>query</code></td><td>FTS + 向量 + 查询扩展 + LLM 重排</td><td><b>默认推荐，质量最好</b></td></tr>
+</table>
+<p><b>混合检索 8 步管线（<code>architecture.md</code>，本次改动复用的正是这条管线）：</b></p>
+<ol>
+  <li>初始 FTS 扫描；<b>强信号短路</b>：top1 得分 ≥ 0.85 且领先第 2 名 ≥ 0.15 → 跳过查询扩展。</li>
+  <li>查询扩展（微调模型）生成 <code>lex</code> / <code>vec</code> / <code>hyde</code> 变体并去重。</li>
+  <li>并行检索：每个查询同时走 FTS 与向量，原始查询给予 <b>×2 权重</b>。</li>
+  <li><b>RRF 融合</b> <code>score = Σ(weight/(k+rank+1))</code>，<b>k = 60</b>；第 1 名 +0.05、第 2–3 名 +0.02。</li>
+  <li>取 <b>Top 40</b> 送入重排。</li>
+  <li>LLM 交叉编码重排（<code>qwen3-reranker</code>，以 logprob 作为置信度）。</li>
+  <li><b>位置感知混合</b>：<code>blended = rrfWeight×(1/rrfRank) + (1-rrfWeight)×rerankScore</code>，rank 1–3 → 0.75、4–10 → 0.60、11+ → 0.40。</li>
+  <li>分数归一化：FTS <code>abs(s)/(1+abs(s))</code>；向量 <code>1-distance</code>；重排直接取 logprob。</li>
+</ol>
+<p><b>分数解读：</b><code>0.8–1.0</code> 高度相关｜<code>0.5–0.8</code> 中等｜<code>0.2–0.5</code> 部分相关｜<code>0.0–0.2</code> 低相关。<b>与本次改动的关联：</b>3.4 节为 <code>hybridQuery</code> 新增的 <code>collections</code> / <code>skipRerank</code> / <code>minScore</code> 正是对第 1、6 步的可选干预。</p>
+
+<h4>4.2.3 查询语法（<code>SYNTAX.md</code>）</h4>
+<ul>
+  <li><code>lex</code>：BM25 关键词，支持 <code>word</code> 前缀匹配、<code>"phrase"</code> 精确短语、<code>-word</code> / <code>-"phrase"</code> 排除。</li>
+  <li><code>vec</code>：向量语义查询。</li>
+  <li><code>hyde</code>：假设性答案嵌入——先写一段 50–100 词的"预期答案"，再以其向量检索。</li>
+  <li><code>intent</code>：背景说明，用于<b>消歧</b>；<b>本身不检索、不能单独出现</b>，须至少配一条 <code>lex:/vec:/hyde:</code>。</li>
+  <li><b>权重规则</b>：多行查询中<b>第一行权重为 2 倍</b>；融合时原始查询也 ×2。</li>
+</ul>
+
+<h4>4.2.4 三种使用入口</h4>
+<table>
+  <tr><th style="width:80px">入口</th><th>要点</th></tr>
+  <tr><td><b>CLI</b></td><td><code>collection</code> / <code>search</code> / <code>vsearch</code> / <code>query</code> / <code>get</code> / <code>multi-get</code> / <code>doc-toc</code> / <code>doc-read</code> / <code>doc-grep</code> / <code>context</code> / <code>embed</code> / <code>status</code> / <code>update</code> / <code>cleanup</code> / <code>wiki</code> / <code>skill</code> / <code>mcp</code>。检索核心抽象是 <b>address</b>（PDF 用 <code>page</code>、Markdown 用 <code>line</code>/<code>heading</code>、DOCX 用 <code>section</code>、PPTX 用 <code>slide</code>）</td></tr>
+  <tr><td><b>SDK</b></td><td><code>createStore()</code> → <code>search()</code> / <code>searchLex()</code> / <code>searchVector()</code> / <code>expandQuery()</code> / <code>get()</code> / <code>multiGet()</code> / <code>getBackend("pdf")</code> / <code>update()</code> / <code>embed()</code>。<b>本次改动使用的 <code>store.writeDocument()</code>、<code>store.db</code> 属其内部 API</b></td></tr>
+  <tr><td><b>MCP</b></td><td><b>15 个工具分三组</b>：检索（<code>query/get/multi_get/status</code>）、深度阅读（<code>doc_toc/doc_read/doc_grep/doc_query/doc_elements/doc_links</code>）、知识摄取（<code>wiki_ingest/doc_write/wiki_lint/wiki_log/wiki_index</code>）</td></tr>
+</table>
+
+<h4>4.2.5 存储、分块与模型</h4>
+<ul>
+  <li><b>存储</b>：默认 <code>~/.cache/qmd/index.sqlite</code>；核心表 <code>content</code>（内容寻址）、<code>documents</code>（虚拟路径→hash，<b>6 字符 docid</b>）、<code>documents_fts</code>(FTS5)、<code>store_collections</code>、<code>content_vectors</code>、<code>vectors_vec</code>、<code>links</code>、<code>wiki_log</code>、<code>wiki_sources</code> 及各类页/目录缓存表。</li>
+  <li><b>智能分块</b>：约 <b>900 token/块、15% 重叠</b>；断点分值 <code>#</code>100 / <code>##</code>90 / <code>###</code>80 / 代码块 80 / 分隔线 60 / 空行 20 / 列表项 5，在<b>前 200 token 窗口</b>内按 <code>baseScore × (1-(distance/window)²×0.7)</code> 取最高分切分。</li>
+  <li><b>三个 GGUF 模型</b>（首次自动下载）：<code>embeddinggemma-300M-Q8_0</code>（嵌入，~300MB）、<code>qwen3-reranker-0.6b-q8_0</code>（重排，~640MB）、<code>qmd-query-expansion-1.7B-q4_k_m</code>（查询扩展，~1.1GB）。切换嵌入模型后<b>必须</b> <code>qmd embed -f</code> 重算。</li>
+</ul>
+
+<h3>4.3 工程实践与运维经验（源自 <code>xuexi/</code>）</h3>
+
+<h4>4.3.1 部署与运维</h4>
+<ul>
+  <li><b>分工</b>：<code>qmd_deploy.ps1</code> 只做"本地打包 + scp 上传 + 触发远程"；真正的解压、<code>npm install</code>、<code>npm run build</code>、启动在服务端脚本中完成。</li>
+  <li><b>硬规则</b>：打包<b>必须排除</b> <code>node_modules</code> / <code>.git</code> / <code>dist</code>——原生模块含平台二进制，须在目标平台重装。</li>
+  <li><b>踩坑</b>：脚本<b>只用 ASCII</b>（PowerShell 读无 BOM 的 UTF-8 会按 GBK 解析，中文必乱码）；scp 目标需转义反引号 `` `$SERVER`: ``；每步检查 <code>$LASTEXITCODE</code> 防错误被吞；<code>-o IdentitiesOnly=yes</code> 防 SSH 试错其它 key。</li>
+  <li><b>安全</b>：部署脚本初始化的默认账号 <code>admin / 123</code> <b>上线必须修改</b>。</li>
+</ul>
+
+<h4>4.3.2 检索链路性能排障（五个瓶颈与修复）</h4>
+<p><b>为什么重排最贵：</b>cross-encoder 必须把 query 与每个候选<b>逐对拼接各跑一次完整前向</b>，中间结果无法复用；每生成一个 token 都要把整套 <b>640MB 权重读一遍</b>。相比之下嵌入是 bi-encoder，文档向量已离线预计算进 SQLite，在线只需为很短的 query 算一次。</p>
+<table>
+  <tr><th style="width:70px">阶段</th><th>症状 → 根因 → 修复 → 收益</th></tr>
+  <tr><td><b>T0</b></td><td>重排 7 块耗时 261s ← <b>集显被当成加速器</b> → 初始化关闭卸载、强制纯 CPU → 回落至分钟级</td></tr>
+  <tr><td><b>T1</b></td><td>冷查询 141s / 二次 11s ← <b>杀软实时扫描 GGUF</b> → 仅对 <code>models/</code> 加信任（勿扩大到整个缓存目录）→ 秒级</td></tr>
+  <tr><td><b>T2</b></td><td>带 grammar 的查询扩展<b>永久卡死</b> ← 上游采样器结束符死循环 → 升级 node-llama-cpp 3.17.1→3.20.0 + <b>弃用 grammar，改自由生成 + 容错行解析</b></td></tr>
+  <tr><td><b>T3</b></td><td>每次调用重新加载模型 ~205s → 改为<b>常驻服务</b>（模型只载一次）→ <b>205.4s → 1.2s（164×）</b></td></tr>
+  <tr><td><b>T4</b></td><td>完整检索 &gt;4min 超时 → 把"跳过重排"开关接到 CLI 与工具层并<b>默认关闭</b>（需最高精度时用 <code>--rerank</code>）→ <b>270s+ → 8.9s</b></td></tr>
+</table>
+<p><b>运维要点：</b>常驻服务是前置依赖（<code>qmd mcp --http --daemon</code>）；服务<b>仅监听 IPv6</b>（<code>127.0.0.1</code> 连不上，须用 <code>localhost</code> / <code>[::1]</code>）；上下文空闲 5 分钟后释放、下次透明重建（权重不清空，故仍远快于冷启动）。<b>这条经验直接解释了本报告 3.2 中"反向审查为何走脚本而非 HTTP"——长任务必须用常驻或脚本方式，避免重复加载与超时。</b></p>
+
+<h4>4.3.3 向量索引重建复盘（四个问题与根因）</h4>
+<table>
+  <tr><th style="width:60px">问题</th><th>现象 → 根因 → 结论</th></tr>
+  <tr><td><b>问题一</b></td><td><code>Cannot read properties of undefined (reading 'prepare')</code> ← 项目有<b>两层 store</b>：SDK 层 <code>QMDStore</code>（<b>无 <code>db</code> 属性</b>）与内部 <code>InternalStore</code>（有 <code>db</code>）；<code>server.ts</code> 导入前者却用 <code>as any</code> 直接调底层函数 → <code>store.db</code> 为 undefined。<b>根因是 <code>as any</code> 让 TS 失去保护</b>；修复为改调 <code>store.embed({...})</code></td></tr>
+  <tr><td><b>问题二</b></td><td>"一直显示重建中" ← 排除死循环/参数/下载/编译后，实测确认为 <b>CPU 算力下限</b>（4 核跑 300M 模型约 20ms/token）。<b>关键误判</b>：用数据库已有向量行数（32）反推 chunk 数得出 ETA 6–7 分钟，实际 <b>73 个 chunk</b>，<b>ETA 被低估一倍以上</b>——ETA 必须直接调用分词函数测量</td></tr>
+  <tr><td><b>问题三</b></td><td>服务器崩溃 + 前端计时空转（出现 762s / 1324s 假象）← 进程崩溃后请求永不 resolve，<code>setInterval</code> 继续走。改进：<b>启动带日志重定向</b>，正是靠日志中的 <code>POST /api/embed (2168856ms)</code> 才确认那次其实已成功（约 36 分钟）</td></tr>
+  <tr><td><b>问题四</b></td><td><b>GPU 认知偏差（最重要的纠正）</b>：检测到 <code>llama.gpu="vulkan"</code>、VRAM 8GB 就建议开启是错的——实为 <b>Intel UHD 集显</b>。上游"集显更慢"的结论基于 <b>rerank</b> 基准；而干净 A/B 实测（同任务、无并发）显示 <b>embedding 场景下集显快约 7 倍</b>（257s vs CPU 预估 30 分钟）。<b>原则：上游性能结论不能跨模型、跨机器套用，必须本机实测。</b></td></tr>
+</table>
+<p><b>耗时对比（exam 73 chunks）：</b>CPU ≈ <b>30 分钟</b>（97% 在推理）｜集显 Vulkan ≈ <b>4.3 分钟</b>（准备升到 ~112s 但推理快 12×）→ 总提速约 7 倍。</p>
+<p><b>被主动撤回的负优化（很有教育意义）：</b>多上下文并行（本机 CPU 分支本就返回 1）、推理线程开满 8（4 物理核+超线程，单条从 12s <b>恶化到 48s</b>）——均已还原。</p>
+<p><b>遗留缺陷：</b>exam 处于"<b>部分嵌入</b>"——库里只有 32 条向量、实际 73 个 chunk，而 <code>getHashesNeedingEmbedding()</code> 只统计"完全没有向量的文档 hash"，<b>只要某 hash 存在任意一条向量就不再计入</b>，导致缺失的 41 个 chunk 静默影响检索质量。根治方向：改为<b>按 chunk 数比对</b>。</p>
+
+<h4>4.3.4 对外接口、鉴权与配置</h4>
+<ul>
+  <li><b><code>/api/ask</code> 对外提问接口</b>：<code>POST</code> + <code>Authorization: Bearer &lt;token&gt;</code>，返回<b>标准 JSON（非流式）</b>；全程在服务端完成检索与生成，调用方<b>只传问题、不持有 LLM key</b>。错误码：<code>400</code> 请求体非法｜<code>401</code> token 无效｜<code>500</code> 检索失败；<b>生成阶段失败仍返回 200，但 <code>error</code> 非空</b>（多为 LLM 地址不可达）。</li>
+  <li><b>鉴权红线</b>：<b>严禁</b>用 <code>QMD_ALLOW_ANONYMOUS=true</code> 对外暴露——它会让<b>所有</b> <code>/api</code> 路由匿名开放（含配置写入与用户管理）。正确做法是新增<b>只读"查询 Token"作用域</b> + IP 白名单。</li>
+  <li><b>账号登录</b>：密码存为 <code>scrypt$&lt;saltHex&gt;$&lt;hashHex&gt;</code>（每账号随机 16 字节 salt）、<code>timingSafeEqual</code> 常量时间比较、<b>5 次/分钟/IP 滑动窗口限流</b>、失败统一返回 401「用户名或密码错误」<b>以防范用户枚举</b>；凭证校验抽象为可替换的 <code>CredentialVerifier</code>，预留对接 LDAP / OIDC。</li>
+  <li><b>每用户专属配置</b>：采用"<b>全局默认层 + 每用户覆盖层</b>"，通过 <code>AsyncLocalStorage</code> 传递用户上下文，使 <code>getSettings()</code> 自动返回合并结果而无需逐层透传 userId。核心安全设计是 <b><code>USER_WRITABLE_SETTINGS</code> 白名单</b>——只放开检索数值与自带 key 的 LLM 配置，<b>分块 / 索引 / 模型本体字段刻意不可写</b>，因为索引是单实例内所有用户共享的。</li>
+</ul>
+
+<h4>4.3.5 Wiki 建库流程</h4>
+<ul>
+  <li><b>关键结论</b>：wiki 与 raw <b>共用同一套建库管线</b>，唯一区别是 <code>store_collections.type='wiki'</code>，从而在查询期被自动并入混合检索；<b>无需为已有 raw 集合重建索引</b>。</li>
+  <li><b>11 步管线</b>：<code>collection add</code> → 校验同名/同 path+pattern → 写 <code>~/.config/qmd/index.yml</code> → <code>syncConfigToDb</code> 写入 SQLite → <code>indexFiles()</code> → glob 发现 → 后端解析 → <code>chunking.ts</code> 分块 → <code>llm.ts embed()</code> → 写 <code>documents/content/vec0/FTS5/links</code> → 提交事务。</li>
+  <li><b>查询期</b>：<code>resolveHybridCollections()</code> 扫描 <code>type='wiki'</code> 集合并入检索列表，命中结果标 <code>kind:'wiki'</code>；wiki 与 raw <b>共用同一 embedding 模型，语义空间一致，混合重排无偏差</b>。</li>
+</ul>
+
+<h3>4.4 跨文件高价值经验清单</h3>
+<table>
+  <tr><th style="width:100px">类别</th><th>结论</th></tr>
+  <tr><td><b>类型与架构</b></td><td><code>as any</code> 是 Bug 温床（两层 store 混用被编译期放行）；分层对象边界应由<b>类型系统强制</b>而非靠约定</td></tr>
+  <tr><td><b>排查方法</b></td><td>"卡住"必须<b>量化</b>（分步计时）而非凭感觉；ETA 要用<b>真实输入规模</b>（直接调分词函数），不能用数据库行数反推</td></tr>
+  <tr><td><b>性能优化</b></td><td>必须 <b>A/B 实测</b>；<b>线程数 ≠ 物理核数</b>（超线程下开满反而恶化）；<b>上游性能结论不可跨模型 / 跨机器套用</b></td></tr>
+  <tr><td><b>可观测性</b></td><td>长任务必须<b>同时有进度反馈与服务端日志</b>——缺进度分不清"慢"与"崩"，缺日志崩溃后无线索；事务粒度过大（每 32 条 COMMIT）崩溃会全丢</td></tr>
+  <tr><td><b>鉴权与安全</b></td><td>鉴权顺序会<b>掩盖真实错误</b>（401 门禁挡住了本该暴露的 Bug）；不要用匿名开关暴露对外接口；对外用只读 Token + IP 白名单</td></tr>
+  <tr><td><b>运维</b></td><td>工具"后台启动"会被会话 job 回收 → 用 WMI 独立会话或常驻终端；服务<b>仅监听 IPv6</b>；<b>改源码必须 rebuild + 重启</b>（全局包与源码是两份代码）；Windows 下须防 BOM 与 shell 引号问题</td></tr>
+  <tr><td><b>部署</b></td><td>打包排除 <code>node_modules</code> / <code>.git</code> / <code>dist</code>，原生模块在目标平台重装；脚本保持 ASCII-only；逐步检查 <code>$LASTEXITCODE</code></td></tr>
+  <tr><td><b>数据一致性</b></td><td>"部分嵌入"检测只看 hash 是否存在向量，会<b>静默漏掉</b>新增 chunk（32 vs 73），需按 chunk 数比对</td></tr>
+</table>
+
+<h3>4.5 知识资产与本次改动的关联</h3>
+<p>这些知识不是孤立资料，它们<b>既解释了本次为什么这样改，也提示了后续要注意什么</b>：</p>
+<ul>
+  <li><b>架构依据</b>：<code>docs/architecture.md</code> 描述的混合检索管线、<code>Store</code> 抽象、智能分块与 SQLite schema，正是本次改动<b>直接复用</b>的底座——3.4 节为 <code>hybridQuery</code> 新增的三个可选参数，都是在这条既有管线上做最小干预。</li>
+  <li><b>工作流依据</b>：<code>docs/contract-review-workflow.html</code> 完整记录了本次<b>正向</b>审查管线（44 条规则 × 双路检索 → 报告），其实测结果为 <b>44/44 条规则完成评审、100% 带 wiki 依据、触发 7 条</b>（<code>OPS-013/016/017/022/024/041/042</code>）——与第一部分的运行结论相互印证。</li>
+  <li><b>运维依据</b>：<code>xuexi/</code> 的经验直接指导了本次运行方式——<b>常驻服务 / 脚本触发</b>（避免重复加载模型）、<b>默认跳过重排</b>（避免超时）、<b>日志重定向</b>（便于定位）、<code>QMD_GPU</code> 取舍、以及"改源码必须 rebuild"。</li>
+  <li><b>待办提示</b>：<code>xuexi/</code> 记录的<b>遗留缺陷</b>（部分嵌入漏 chunk、<code>store as any</code>、事务粒度过粗、缺真实进度上报）同样是本项目当前的技术债，建议在 5.5 的后续工作中一并考虑。</li>
+</ul>
+<p><b>文档间差异提示（以代码为准）：</b>① 分块大小 <code>architecture.md</code> 记为 900 token，而 Wiki 建库时序图记为 550 token；② <code>contract-review-workflow.html</code> 使用的 <code>--wiki</code> / <code>qmd index</code> 写法与上游 <code>cli.md</code> 的 <code>--type wiki</code> / <code>qmd wiki index</code> 不一致；③ 运行要求 Node ≥18（workflow）与 ≥22（tutorial）。引用时请以<b>实际代码与 CLI 帮助</b>为准。</p>
+
+<h2 class="page-break">第五部分　宏观总结</h2>
+<p><b>一句话总览：</b>本次工作在 <b>MinerU-Document-Explorer</b> 这一通用文档知识引擎之上，以「<b>叠加而非重构</b>」的方式新增了一层<b>合同风险审查</b>能力，并用一次真实试运行（23 片段 / 233 风险点 / 预料外占比 56%）验证了它确实能发现标准清单覆盖不到的隐患。</p>
+
+<h3>5.1 前四部分的逻辑关系</h3>
+<table>
+  <tr><th style="width:110px">部分</th><th style="width:130px">回答的问题</th><th>核心产出</th></tr>
+  <tr><td>第一部分</td><td><b>跑出来什么？</b></td><td>7 阶段运行过程与最终结果：23 片段、233 风险点、预料外占比 56%</td></tr>
+  <tr><td>第二部分</td><td><b>系统长什么样？</b></td><td>五层架构、三条主链路、模块边界与单向依赖关系</td></tr>
+  <tr><td>第三部分</td><td><b>改了什么、为何安全？</b></td><td>8 个模块的逐项改动说明，含兼容方式、目标、预期效果与约束条件</td></tr>
+  <tr><td>第四部分</td><td><b>知识从哪来？</b></td><td><code>docs/</code> 能力文档与 <code>xuexi/</code> 实践文档的归纳：上游能力体系 + 工程经验清单</td></tr>
+  <tr><td><b>本部分</b></td><td><b>整体意味着什么？</b></td><td>把结果、结构、改动、知识串成一条完整结论，并指出价值、局限与后续方向</td></tr>
+</table>
+<p>五者构成「<b>跑通 → 看懂 → 改对 → 沉淀知识 → 总结</b>」的闭环：先验证能力可用，再理解系统结构，然后据此判断改动的安全性，进而归纳支撑这一切的知识资产，最后沉淀为可复用的结论。</p>
+
+<h3>5.2 本次核心成果</h3>
+<table>
+  <tr><th style="width:100px">维度</th><th>成果</th></tr>
+  <tr><td><b>业务成果</b></td><td>新增<b>双向</b>审查能力：正向（44 条规则逐条核对，保证不漏项）+ 反向（从合同文本出发发现清单外隐患）。实测 233 个风险点中 <b>131 个（56%）属预料外</b>，证明反向管线补足了单靠清单的盲区</td></tr>
+  <tr><td><b>架构成果</b></td><td>新增代码集中在业务层（<code>src/contract-review/</code>）与存储层增量（v5 三表），接入层与应用层仅做最小增量；依赖严格单向，<b>未破坏</b>原 Retrieve / Deep Read / Ingest 三大能力</td></tr>
+  <tr><td><b>工程成果</b></td><td>数据迁移<b>幂等</b>（可重复运行）、规则库<b>版本化</b>（<code>ruleset_version</code>）、长任务<b>增量落盘</b>（<code>-partial.md</code>）、LLM 失败<b>降级不崩溃</b>；并补齐 <code>Database.transaction</code> 类型使编译恢复健康</td></tr>
+  <tr><td><b>知识成果</b></td><td>打通「采集 → wiki → 自动建索引 → 下次可检索 → 成为报告依据」的<b>回流闭环</b>，系统每次使用都在为下一次积累语料</td></tr>
+</table>
+
+<h3>5.3 方法论沉淀（可复用的经验）</h3>
+<ol>
+  <li><b>叠加优于重构</b>：为通用引擎增加垂直能力时，优先"新增隔离模块 + 复用既有能力"，而非改造核心。既降低风险，也让改动易于向上游合并。</li>
+  <li><b>双向视角互补</b>：单靠"标准清单"会漏（清单本身不完整），单靠"模型自由发挥"会飘（缺乏判定基准）。<b>规则驱动 + 数据驱动</b>双管线并用，才能既覆盘又查漏——56% 的预料外占比就是最直接的证据。</li>
+  <li><b>检索要混合、要分域</b>：向量负责语义、BM25 负责精确条款号；审查时按"合同域 / wiki 域"分开检索，结论才可溯源。</li>
+  <li><b>长任务必须增量落盘</b>：与 LLM 打交道的流水线动辄数十分钟，把"写结果"放进循环而非放在最后，是低成本高收益的可靠性设计。</li>
+  <li><b>配置出口要唯一</b>：所有模型调用走同一处配置，杜绝"问答能用、审查报错"的配置漂移。</li>
+  <li><b>诚实标注未完成项</b>：如 CLI 子命令标注为"规划中"而非含糊带过，避免读者误判实现程度——这也是本报告刻意遵循的原则。</li>
+</ol>
+
+<h3>5.4 价值与局限</h3>
+<table>
+  <tr><th style="width:70px">方面</th><th>说明</th></tr>
+  <tr><td><b>价值</b></td><td>把原本需要人工通读数小时的合同核对，压缩为一条命令产出结构化报告；能发现人工容易忽略的"清单外"风险；结果可持久化、可列管、可复现；全过程 100% 本地优先，无需依赖云端</td></tr>
+  <tr><td><b>局限</b></td><td>① 预料外风险<b>存在误报</b>，须人工复核（报告已附等级、建议与 wiki 制度依据以降低复核成本）；② 反向审查耗时随片段数线性增长，全量约 40 片段需数十分钟；③ 规则库当前绑定单一业务清单（44 项），跨行业需更换种子；④ CLI 子命令<b>尚未补齐</b>，当前入口为 <code>scripts/</code></td></tr>
+</table>
+
+<h3>5.5 后续建议（按优先级排序）</h3>
+<ol>
+  <li><b>补齐 CLI 子命令</b>（<code>qmd contract review</code>、<code>qmd risk-rules import</code>），让运维 / 合规可在终端与 CI 中批量使用——具体落地要点见 3.6。</li>
+  <li><b>实现真正的断点续跑</b>：当前 <code>-partial.md</code> 能保留结果，但重启会重跑已审片段；可记录已审位置实现续跑。</li>
+  <li><b>规则库多版本 / 多行业支持</b>：利用已有的 <code>ruleset_version</code> 与 <code>source</code> 字段，支持同时装载多套清单并按合同类型选择。</li>
+  <li><b>人工复核闭环</b>：把"复核结论（采纳 / 驳回）"回写 <code>analysis_records</code>，用反馈数据持续优化提示词与规则权重。</li>
+  <li><b>固化回归测试</b>：把 3.10 的 5 步兼容性验证方法做成自动化测试，防止后续改动侵蚀原有三大能力。</li>
+</ol>
+
+<div class="card info">
+  <p style="margin:2px 0"><b>结语：</b>本次改动始终遵循一条主线——<b>在不惊动原系统的前提下，让它多一项能力</b>。所有设计选择：隔离新模块、追加式迁移、可选参数、唯一 LLM 出口、增量落盘，都是为这条主线服务。正因如此，它具备向上游 <b>opendatalab/MinerU-Document-Explorer</b> 合并的现实可行性：通用引擎仍是那个通用引擎，只是多了一副"合同审查"的专业眼镜。</p>
+</div>
+
+<footer>
+  本报告由会话记录整理生成，过程与结果均可在 <code>reports-kindergarten/cd-*-partial.md</code> 及对应源码中复核。
+</footer>
+</body>
+</html>

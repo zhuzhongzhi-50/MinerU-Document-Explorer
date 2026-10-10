@@ -50,6 +50,128 @@ const SYSTEM_PROMPT = `你是一个基于本地知识库的问答助手。请仅
 3. 如果参考文档中没有相关信息，请明确说明"根据现有资料无法回答"，不要猜测。
 4. 回答简洁、准确，优先给出直接结论，必要时分条列出。`;
 
+// 通用问答（未选择任何集合时使用）：不注入参考文档，不限制"只能依据文档作答"
+const DIRECT_SYSTEM_PROMPT = `你是一个通用智能助手。请直接、清晰地回答用户的问题。
+要求：
+1. 基于你自身的知识作答，不需要引用任何文档编号。
+2. 回答简洁、准确，优先给出直接结论，必要时分条列出。
+3. 若问题存在歧义，可先说明你的理解再作答。`;
+
+/**
+ * 通用直答：跳过检索环节，直接把问题交给大模型。
+ * 与 generateAnswer 的区别：不拼接参考文档上下文，也不套用 RAG 的受限提示词。
+ */
+export async function generateDirectAnswer(
+  query: string,
+  opts?: GenerateAnswerOptions,
+): Promise<RagAnswer> {
+  const settings = getSettings();
+  const baseUrl = (settings.llmBaseUrl || process.env.LLM_BASE_URL || "").replace(/\/+$/, "");
+  const apiKey = settings.llmApiKey || process.env.LLM_API_KEY || "";
+  const model = settings.llmModel || process.env.LLM_MODEL || "";
+
+  if (!baseUrl || !model) {
+    return {
+      answer:
+        "（未配置问答模型：请配置 llmBaseUrl / llmModel / llmApiKey，" +
+        "或设置环境变量 LLM_BASE_URL / LLM_MODEL / LLM_API_KEY。）",
+      model: "",
+      sources: [],
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120_000);
+  try {
+    const buildBody = (stream: boolean) =>
+      JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: DIRECT_SYSTEM_PROMPT },
+          { role: "user", content: query },
+        ],
+        temperature: 0.3,
+        stream,
+      });
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: buildBody(true),
+      signal: controller.signal,
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      return {
+        answer: "",
+        model,
+        sources: [],
+        error: `问答 API 错误 ${resp.status}: ${text.slice(0, 500)}`,
+      };
+    }
+
+    let answer = "";
+    const reader = resp.body?.getReader();
+    if (reader) {
+      const decoder = new TextDecoder();
+      let buf = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() || "";
+          for (const line of lines) {
+            const t = line.trim();
+            if (!t.startsWith("data:")) continue;
+            const payload = t.slice(5).trim();
+            if (payload === "[DONE]") continue;
+            try {
+              const json = JSON.parse(payload);
+              const delta = json.choices?.[0]?.delta?.content;
+              if (delta) {
+                answer += delta;
+                opts?.onToken?.(delta);
+              }
+            } catch {
+              /* ignore malformed chunk */
+            }
+          }
+        }
+      } catch {
+        /* stream interrupted — fall through to fallback */
+      }
+    }
+
+    if (!answer) {
+      try {
+        const r2 = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers,
+          body: buildBody(false),
+          signal: controller.signal,
+        });
+        if (r2.ok) {
+          const j = (await r2.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
+          answer = String(j?.choices?.[0]?.message?.content ?? "");
+          if (answer) opts?.onToken?.(answer);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
+    return { answer, model, sources: [] };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function generateAnswer(
   query: string,
   results: ReadonlyArray<RagSearchResult>,

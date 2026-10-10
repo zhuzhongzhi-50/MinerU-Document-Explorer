@@ -33,6 +33,26 @@ export function generateWikiIndex(db: Database, opts: WikiIndexOptions): WikiInd
     throw new Error(`Collection not found: ${opts.collection}`);
   }
 
+  // Preserve a hand-curated overview block across regenerations.
+  // If the existing index.md contains <!--OVERVIEW-START-->…<!--OVERVIEW-END-->,
+  // it is re-injected after the header so manual edits survive `wiki_index --write`.
+  const OVERVIEW_START = "<!--OVERVIEW-START-->";
+  const OVERVIEW_END = "<!--OVERVIEW-END-->";
+  let preservedOverview = "";
+  try {
+    const existing = db.prepare(
+      `SELECT c.doc FROM documents d JOIN content c ON c.hash = d.hash
+       WHERE d.collection = ? AND d.path = 'index.md' AND d.active = 1`
+    ).get(opts.collection) as { doc: string } | undefined;
+    if (existing?.doc) {
+      const s = existing.doc.indexOf(OVERVIEW_START);
+      const e = existing.doc.indexOf(OVERVIEW_END);
+      if (s !== -1 && e !== -1 && e > s) {
+        preservedOverview = existing.doc.slice(s + OVERVIEW_START.length, e).trim();
+      }
+    }
+  } catch { /* ignore */ }
+
   const docs = db.prepare(`
     SELECT
       d.path, d.title, d.hash, d.modified_at,
@@ -69,6 +89,14 @@ export function generateWikiIndex(db: Database, opts: WikiIndexOptions): WikiInd
   lines.push("");
   lines.push(`> Auto-generated index of ${docs.length} pages. Last updated: ${new Date().toISOString().split("T")[0]}`);
   lines.push("");
+
+  // Re-inject a hand-curated overview block if one was preserved from a prior index.
+  if (preservedOverview) {
+    lines.push(`<!--OVERVIEW-START-->`);
+    lines.push(preservedOverview);
+    lines.push(`<!--OVERVIEW-END-->`);
+    lines.push("");
+  }
 
   // Root-level docs
   if (rootDocs.length > 0) {

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>qmd_deploy.ps1 逐行分析与时序图</title>
+<style>
+  :root { --ink:#1a1a1a; --line:#d8d8d8; --accent:#1f5fae; --codebg:#f5f6f8; }
+  * { box-sizing: border-box; }
+  body { font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif; color:var(--ink); font-size:12pt; line-height:1.6; margin:0; }
+  @page { size: A4; margin: 16mm 15mm; }
+  .page { padding:0 2mm; }
+  h1 { font-size:19pt; margin:0 0 2mm; color:var(--accent); border-bottom:2px solid var(--accent); padding-bottom:3mm; }
+  h2 { font-size:14pt; margin:7mm 0 3mm; color:var(--accent); border-left:4px solid var(--accent); padding-left:3mm; }
+  p { margin:2mm 0; }
+  code { font-family:Consolas,"Courier New",monospace; font-size:10.3pt; background:var(--codebg); padding:0 2px; border-radius:3px; }
+  table { width:100%; border-collapse:collapse; margin:3mm 0; font-size:9.8pt; }
+  th,td { border:1px solid var(--line); padding:1.6mm 2.4mm; text-align:left; vertical-align:top; }
+  th { background:#eef3fa; color:var(--accent); font-weight:600; }
+  td.ln { width:34px; text-align:center; color:#666; font-family:Consolas,monospace; white-space:nowrap; }
+  td.code { font-family:Consolas,monospace; font-size:8.8pt; color:#21354f; width:40%; word-break:break-all; }
+  .note { background:#fff8e6; border:1px solid #f0d89a; border-radius:4px; padding:2mm 4mm; margin:3mm 0; font-size:10.5pt; }
+  .svgwrap { text-align:center; margin:3mm 0; }
+  .legend { font-size:9.5pt; color:#444; margin:2mm 0; }
+  .pb { page-break-before:always; }
+  @media print { table, .note, .svgwrap, h2 { page-break-inside:avoid; } a{color:var(--ink);text-decoration:none;} }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>qmd_deploy.ps1 逐行分析与时序图</h1>
+  <p>用途：在<strong>本地 PowerShell</strong> 一键把 MinerU-Document-Explorer 源码部署到腾讯云轻量服务器（<code>49.233.91.18</code>）。脚本本身只做「搬运 + 触发」，真正的安装/构建/启动在服务端的 <code>qmd_deploy_server.sh</code> 里完成。</p>
+
+  <h2>一、逐行分析</h2>
+  <table>
+    <tr><th>行</th><th>代码（摘要）</th><th>作用说明</th></tr>
+    <tr><td class="ln">1-2</td><td class="code"># qmd_deploy.ps1 ... one-click deploy ...</td><td>注释：说明脚本用途（部署到腾讯云轻量服务器）与运行方式（本地 PowerShell 执行 <code>.\qmd_deploy.ps1</code>）。</td></tr>
+    <tr><td class="ln">3</td><td class="code"># NOTE: kept ASCII-only on purpose ...</td><td>关键提醒：脚本刻意只用 ASCII。Windows PowerShell 在无 BOM 时会把 UTF-8 当 GBK 读，中文会乱码，故全程避免非 ASCII 字符。</td></tr>
+    <tr><td class="ln">4</td><td class="code">$ErrorActionPreference = "Stop"</td><td>任何命令返回非零退出码都立即中止整个脚本，防止错误被忽略后继续执行后续步骤。</td></tr>
+    <tr><td class="ln">6-7</td><td class="code"># config ... $KEY = "C:\Users\wuzhu\qmd_deploy_key"</td><td>配置区注释 + 定义本地 SSH 私钥路径。</td></tr>
+    <tr><td class="ln">8</td><td class="code">$SERVER = "49.233.91.18"</td><td>远程服务器公网 IP（腾讯云轻量）。</td></tr>
+    <tr><td class="ln">9</td><td class="code">$PORT = 22</td><td>SSH 端口。</td></tr>
+    <tr><td class="ln">10</td><td class="code">$USER = "ubuntu"</td><td>远程登录用户名。</td></tr>
+    <tr><td class="ln">11</td><td class="code">$LOCAL_PROJ = "E:\...\MinerU-Document-Explorer"</td><td>本地项目根目录。</td></tr>
+    <tr><td class="ln">12</td><td class="code">$TAR_LOCAL = "C:\Users\wuzhu\qmd_src.tar.gz"</td><td>本地打包产物（源码压缩包）路径。</td></tr>
+    <tr><td class="ln">13</td><td class="code">$SERVER_SH = "C:\Users\wuzhu\...\qmd_deploy_server.sh"</td><td>本地存放的「服务器端部署脚本」路径。真正的重活（解压/安装/构建/启动）都在它里面。</td></tr>
+    <tr><td class="ln">16-17</td><td class="code">$TAR_REMOTE = "/tmp/qmd_src.tar.gz"<br>$SERVER_SH_REMOTE = "/tmp/qmd_deploy_server.sh"</td><td>推导出的远程临时路径：压缩包与脚本都先放服务器 <code>/tmp</code>。</td></tr>
+    <tr><td class="ln">19-22</td><td class="code">$SSH / $SCP / $TAR / $SSHADD = "C:\Windows\System32\OpenSSH\*.exe"</td><td>显式指定 Windows 自带 OpenSSH 四个可执行文件的绝对路径，避免调用错版本或被 PowerShell 引号/编码问题干扰。</td></tr>
+    <tr><td class="ln">24</td><td class="code">function Step($msg){ Write-Host "`n==&gt; $msg" -ForegroundColor Cyan }</td><td>定义 <code>Step</code> 函数，打印青色步骤标题（带换行），让 5 步进度清晰。</td></tr>
+    <tr><td class="ln">26-28</td><td class="code">Start-Service ssh-agent -ErrorAction SilentlyContinue<br>&amp; $SSHADD $KEY</td><td>步骤 0：启动 ssh-agent 服务（失败静默忽略），并把私钥加入 agent。此后本脚本内的 ssh/scp 复用已解锁的 key，口令只提示一次。</td></tr>
+    <tr><td class="ln">29</td><td class="code">&amp; $SSHADD $KEY</td><td>把私钥载入 ssh-agent，首次会提示输入私钥口令（passphrase）。</td></tr>
+    <tr><td class="ln">32-33</td><td class="code">Step "1/5 SSH connectivity test"<br>&amp; $SSH -i $KEY -o IdentitiesOnly=yes -p $PORT "$USER@$SERVER" "echo SSH_OK; whoami"</td><td>步骤 1/5：SSH 登录后远端执行 <code>echo SSH_OK; whoami</code>。<code>-i</code> 指定私钥，<code>IdentitiesOnly=yes</code> 防止 SSH 尝试其它 key，<code>-p</code> 指定端口。</td></tr>
+    <tr><td class="ln">34</td><td class="code">if ($LASTEXITCODE -ne 0) { throw "SSH failed..." }</td><td>若 SSH 退出码非 0（连不上/口令错），抛错中止。</td></tr>
+    <tr><td class="ln">37-38</td><td class="code">Step "2/5 pack local source ..."<br>&amp; $TAR czf $TAR_LOCAL -C $LOCAL_PROJ --exclude=node_modules --exclude=.git --exclude=dist .</td><td>步骤 2/5：在本地项目目录打 gzip 包。<code>--exclude</code> 排除 <code>node_modules</code>(含原生模块，不能跨平台复用，须在服务器重装)、<code>.git</code>(无需)、<code>dist</code>(构建产物，会重新生成)。</td></tr>
+    <tr><td class="ln">39</td><td class="code">if ($LASTEXITCODE -ne 0) { throw "pack failed" }</td><td>打包失败则中止。</td></tr>
+    <tr><td class="ln">43</td><td class="code">&amp; $SCP -i $KEY -o IdentitiesOnly=yes -P $PORT $TAR_LOCAL "$USER@$SERVER`:$TAR_REMOTE"</td><td>步骤 3/5：<code>scp</code> 把本地压缩包传到服务器 <code>/tmp/qmd_src.tar.gz</code>。注意 `` `$SERVER`: `` 中的反引号是 PowerShell 转义冒号，防止把 <code>:</code> 当成驱动器符。</td></tr>
+    <tr><td class="ln">44</td><td class="code">if ($LASTEXITCODE -ne 0) { throw "upload failed" }</td><td>上传失败则中止。</td></tr>
+    <tr><td class="ln">48</td><td class="code">&amp; $SCP ... $SERVER_SH "$USER@$SERVER`:$SERVER_SH_REMOTE"</td><td>步骤 4/5 前半：<code>scp</code> 把服务端部署脚本传到 <code>/tmp/qmd_deploy_server.sh</code>。</td></tr>
+    <tr><td class="ln">49</td><td class="code">if (... -ne 0) { throw "upload script failed" }</td><td>脚本上传失败则中止。</td></tr>
+    <tr><td class="ln">50</td><td class="code">&amp; $SSH ... "$USER@$SERVER" "bash $SERVER_SH_REMOTE"</td><td>步骤 4/5 后半：SSH 远程执行 <code>bash /tmp/qmd_deploy_server.sh</code>。解压、<code>npm install</code>、<code>npm run build</code>、启动服务等重活都在这里完成。</td></tr>
+    <tr><td class="ln">51</td><td class="code">if (... -ne 0) { throw "server deploy failed..." }</td><td>远端部署失败则中止。</td></tr>
+    <tr><td class="ln">55</td><td class="code">&amp; $SSH ... "curl -s -m5 http://127.0.0.1:8787/health"</td><td>步骤 5/5：在服务器本机用 <code>curl</code> 访问 <code>http://127.0.0.1:8787/health</code>，验证 QMD 服务已起来（带 5 秒超时）。</td></tr>
+    <tr><td class="ln">56</td><td class="code">Write-Host "...deploy done. open http://$SERVER`:8787 (login: admin / 123)"</td><td>打印完成提示与访问地址、默认登录账号（说明服务端脚本会初始化 admin/123）。</td></tr>
+  </table>
+
+  <div class="note"><b>关键提示：</b>本脚本是「编排层」，真正的服务端动作（解压 → npm install → npm run build → 启动 8787）都在 <code>qmd_deploy_server.sh</code> 中，该文件不在本次分析范围内。另外第 55 行假设服务暴露了 <code>/health</code> 健康检查端点；若该端点不存在，健康检查会失败但不影响前面已完成的部署。</div>
+
+  <h2 class="pb">二、部署流程时序图</h2>
+  <p class="legend">图例：实线箭头 = 请求 / 数据流向；右侧自环 = 本地或远端内部处理（打包、解压安装构建）。参与者从左到右：本地 PowerShell → ssh-agent → OpenSSH → 远程服务器 → QMD 服务。</p>
+  <div class="svgwrap">
+  <svg viewBox="0 0 700 500" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="'Microsoft YaHei',sans-serif">
+    <defs>
+      <marker id="ah" markerWidth="10" markerHeight="8" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M0,0 L9,3 L0,6 Z" fill="#21354f"/>
+      </marker>
+    </defs>
+
+    <!-- lifelines -->
+    <g stroke="#9fb3c8" stroke-width="1" stroke-dasharray="4 3">
+      <line x1="80"  y1="58" x2="80"  y2="472"/>
+      <line x1="215" y1="58" x2="215" y2="472"/>
+      <line x1="355" y1="58" x2="355" y2="472"/>
+      <line x1="505" y1="58" x2="505" y2="472"/>
+      <line x1="625" y1="58" x2="625" y2="472"/>
+    </g>
+
+    <!-- headers -->
+    <g font-size="10.5" text-anchor="middle">
+      <rect x="22"  y="12" width="116" height="34" rx="6" fill="#eef3fa" stroke="#1f5fae"/>
+      <text x="80"  y="34" fill="#1f5fae">本地 PowerShell</text>
+      <rect x="157" y="12" width="116" height="34" rx="6" fill="#eef3fa" stroke="#1f5fae"/>
+      <text x="215" y="34" fill="#1f5fae">ssh-agent</text>
+      <rect x="297" y="12" width="116" height="34" rx="6" fill="#eef3fa" stroke="#1f5fae"/>
+      <text x="355" y="34" fill="#1f5fae">OpenSSH</text>
+      <rect x="447" y="12" width="116" height="34" rx="6" fill="#e8f4ea" stroke="#2e8b57"/>
+      <text x="505" y="34" fill="#2e8b57">远程服务器</text>
+      <rect x="567" y="12" width="116" height="34" rx="6" fill="#fdeef0" stroke="#c0392b"/>
+      <text x="625" y="34" fill="#c0392b">QMD 服务</text>
+    </g>
+
+    <!-- messages -->
+    <g stroke="#21354f" stroke-width="1.4" fill="none">
+      <line x1="86" y1="95"  x2="210" y2="95"  marker-end="url(#ah)"/>
+      <line x1="86" y1="135" x2="500" y2="135" marker-end="url(#ah)"/>
+      <path d="M86,168 L122,168 L122,182 L86,182" marker-end="url(#ah)"/>
+      <line x1="86" y1="215" x2="500" y2="215" marker-end="url(#ah)"/>
+      <line x1="86" y1="255" x2="500" y2="255" marker-end="url(#ah)"/>
+      <line x1="86" y1="295" x2="500" y2="295" marker-end="url(#ah)"/>
+      <path d="M511,328 L549,328 L549,344 L511,344" marker-end="url(#ah)"/>
+      <line x1="511" y1="375" x2="620" y2="375" marker-end="url(#ah)"/>
+      <line x1="86" y1="415" x2="500" y2="415" marker-end="url(#ah)"/>
+      <line x1="500" y1="455" x2="86" y2="455" marker-end="url(#ah)"/>
+    </g>
+
+    <!-- labels -->
+    <g font-size="9" fill="#21354f">
+      <text x="96"  y="90">① ssh-add 载私钥(口令仅一次)</text>
+      <text x="90"  y="130">② SSH 连通测试: echo SSH_OK; whoami</text>
+      <text x="128" y="180">③ tar 打包(排除 node_modules/.git/dist)→qmd_src.tar.gz</text>
+      <text x="90"  y="210">④ scp 上传 qmd_src.tar.gz → /tmp</text>
+      <text x="90"  y="250">⑤ scp 上传 qmd_deploy_server.sh → /tmp</text>
+      <text x="90"  y="290">⑥ ssh bash /tmp/qmd_deploy_server.sh</text>
+      <text x="555" y="338">⑦ 解压→npm install→build→启动服务</text>
+      <text x="515" y="370">⑧ 启动 QMD 监听 :8787</text>
+      <text x="90"  y="410">⑨ ssh curl 127.0.0.1:8787/health</text>
+      <text x="300" y="450">⑩ 返回 health OK</text>
+    </g>
+  </svg>
+  </div>
+
+  <div class="note" style="font-size:10pt;">时序图说明：① 把私钥交给 ssh-agent（口令仅输入一次）；② 验证 SSH 连通；③ 本地 tar 打包源码（剔除 node_modules/.git/dist，原生模块须在服务器重装）；④⑤ 把源码包与部署脚本 scp 到服务器 /tmp；⑥ 远程执行部署脚本，触发 ⑦ 服务端解压/安装/构建/启动；⑧ 启动 QMD 监听 8787；⑨⑩ 在服务器本机 curl 健康检查并回传结果，完成部署。</div>
+
+</div>
+</body>
+</html>

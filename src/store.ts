@@ -495,6 +495,9 @@ function initializeDatabase(db: Database): { vecAvailable: boolean } {
     // sqlite-vec is optional — vector search won't work but FTS is fine
   }
   db.exec("PRAGMA journal_mode = WAL");
+  // WAL 下 synchronous=NORMAL 已能在应用崩溃/断电时保证数据库完整性，
+  // 且不必每笔写入都 fsync，显著提升并发写入吞吐（WAL 模式用 FULL 几乎无额外收益）。
+  db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
 
@@ -641,6 +644,18 @@ function initializeDatabase(db: Database): { vecAvailable: boolean } {
       text      TEXT NOT NULL,
       tokens    INTEGER,
       PRIMARY KEY (docid, slide_idx)
+    )
+  `);
+
+  // XLSX sheet cache (per-sheet content)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sheet_cache (
+      docid      TEXT NOT NULL,
+      sheet_idx  INTEGER NOT NULL,
+      title      TEXT,
+      text       TEXT NOT NULL,
+      tokens     INTEGER,
+      PRIMARY KEY (docid, sheet_idx)
     )
   `);
 
@@ -1059,6 +1074,13 @@ export async function reindexCollection(
   options?: {
     ignorePatterns?: string[];
     onProgress?: (info: ReindexProgress) => void;
+    /**
+     * When true, documents that are NOT matched by this run's glob are left
+     * untouched (stay active). Used by incremental per-file upload, where each
+     * uploaded file is reindexed in isolation and sibling documents must not be
+     * deactivated just because they weren't part of this single-file scan.
+     */
+    preserveUnseen?: boolean;
   }
 ): Promise<ReindexResult> {
   const db = store.db;
@@ -1163,6 +1185,29 @@ export async function reindexCollection(
       continue;
     }
 
+    if (fileExt === 'xlsx' || fileExt === 'xls') {
+      const { extractXlsx, getPythonError } = await import("./backends/python-utils.js");
+      const { extractXlsxForIndex, indexBinaryDocument } = await import("./backends/indexing.js");
+
+      const extraction = await extractXlsxForIndex(filepath, relativeFile, {
+        extractXlsx, getPythonError, extractTitle,
+      });
+      if (!extraction) {
+        processed++;
+        options?.onProgress?.({ file: relativeFile, current: processed, total });
+        continue;
+      }
+      const result = await indexBinaryDocument(db, extraction, collectionName, path, filepath, now, {
+        hashContent, findActiveDocument, insertContent, insertDocument, updateDocument,
+      });
+      if (result === "indexed") indexed++;
+      else if (result === "updated") updated++;
+      else unchanged++;
+      processed++;
+      options?.onProgress?.({ file: relativeFile, current: processed, total });
+      continue;
+    }
+
     let content: string;
     try {
       content = readFileSync(filepath, "utf-8");
@@ -1225,13 +1270,17 @@ export async function reindexCollection(
     options?.onProgress?.({ file: relativeFile, current: processed, total });
   }
 
-  // Deactivate documents that no longer exist
-  const allActive = getActiveDocumentPaths(db, collectionName);
+  // Deactivate documents that no longer exist. Skip this when `preserveUnseen`
+  // is set (incremental per-file upload) so sibling documents that weren't part
+  // of this single-file scan stay active instead of being wrongly deactivated.
   let removed = 0;
-  for (const path of allActive) {
-    if (!seenPaths.has(path)) {
-      deactivateDocument(db, collectionName, path);
-      removed++;
+  if (!options?.preserveUnseen) {
+    const allActive = getActiveDocumentPaths(db, collectionName);
+    for (const path of allActive) {
+      if (!seenPaths.has(path)) {
+        deactivateDocument(db, collectionName, path);
+        removed++;
+      }
     }
   }
 

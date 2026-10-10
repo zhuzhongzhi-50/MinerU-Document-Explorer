@@ -4,7 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>QMD 文档检索 · RAG</title>
-    <link rel="stylesheet" href="/style.css" />
     <style>
       .loading-body { display: flex; flex-direction: column; gap: 4px; }
       .stages { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
@@ -22,120 +21,190 @@
       .stage-output .so-item.done { border-left-color: #3aa757; }
       .stage-output .so-item.done .so-stage { color: #3aa757; }
       .live-answer { margin-top: 10px; padding: 10px 12px; background: #fff; border: 1px solid #e3e3e3; border-radius: 6px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; max-height: 320px; overflow-y: auto; }
+      /* .idx-* / .doc-* 样式已统一迁至 style.css，避免内联规则覆盖外部修复 */
+      .chat-panel { width: 180px; flex: none; border: 1px solid var(--line, #eef1f6); border-radius: var(--radius-sm, 8px); background: var(--card, #fff); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+      .chat-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line, #eef1f6); flex: none; }
+      .chat-panel-head h3 { margin: 0; font-size: 14px; }
+      .chat-sessions { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+      .chat-session-item { position: relative; border: 1px solid #e3e3e3; border-radius: 8px; background: #fff; padding: 8px 26px 8px 10px; cursor: pointer; transition: background .15s; }
+      .chat-session-item:hover { background: #f3f4f8; }
+      .chat-session-item.active { border-color: #1a73e8; box-shadow: 0 0 0 1px #1a73e8 inset; }
+      .csi-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .csi-meta { font-size: 11px; margin-top: 2px; }
+      .csi-del { position: absolute; top: 4px; right: 4px; border: none; background: transparent; color: #9aa3b2; cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 5px; border-radius: 6px; }
+      .csi-del:hover { background: #fdecea; color: #c0392b; }
+      .chat-empty { font-size: 12px; padding: 8px; }
+      .chat-history { display: flex; flex-direction: column; gap: 18px; }
+      .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: #eef1f5; color: #444; flex: none; }
+      .badge.raw { background: #e8f0fe; color: #1a73e8; }
+      .badge.wiki { background: #fff3e0; color: #b26a00; }
+      .btn.danger { background: #fdecea; color: #c0392b; border-color: #f5c6c0; }
+      .btn.danger:hover { background: #f6d4d0; }
+      /* .idx-docs / .doc-* 样式已统一迁至 style.css */
+      .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+      .modal-box { background: #fff; border-radius: 10px; width: min(860px, 92vw); max-height: 86vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
+      .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid #eee; font-weight: 600; }
+      .modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid #eee; }
+      .doc-body { margin: 0; padding: 14px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.6; }
     </style>
+    <link rel="stylesheet" href="/style.css?v=20260923bc" />
   </head>
   <body>
     <header class="topbar">
-      <div class="brand">📚 QMD 文档检索</div>
-      <nav class="tabs">
-        <button class="tab active" data-tab="query">问答</button>
-        <button class="tab" data-tab="config">配置</button>
-        <button class="tab" data-tab="index">索引</button>
-      </nav>
-      <div class="status" id="healthStatus" title="API 连接状态">● 连接中…</div>
+      <div class="brand">
+        <svg class="brand-ico" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7"/>
+          <path d="M14 3v5h5"/>
+          <circle cx="15.5" cy="14.5" r="3.5"/>
+          <line x1="18" y1="17" x2="21" y2="20"/>
+        </svg>
+        合同风险审查小助手
+      </div>
       <div class="topbar-right">
         <span id="userBadge" class="user-badge" hidden></span>
         <button id="logoutBtn" class="btn ghost small" type="button" hidden>退出登录</button>
       </div>
+      <button id="cfgNavBtn" class="topbar-btn" type="button">配置导航</button>
+      <button id="rulesNavBtn" class="topbar-btn" type="button">规则整理</button>
+      <!-- 已连接状态：移到「规则整理」右侧 -->
+      <div class="status" id="healthStatus" title="API 连接状态">● 连接中…</div>
+      <!-- 信息采集入口已隐藏（功能与接口保留，去掉 hidden 即可恢复） -->
+      <button id="intakeNavBtn" class="topbar-btn" type="button" hidden>信息收集</button>
     </header>
 
-    <main>
-      <!-- ===== 问答 ===== -->
+    <div class="layout">
+      <div class="content">
+        <main>
+        <!-- ===== 问答 ===== -->
       <section id="tab-query" class="panel active">
-        <div class="query-box card">
-          <textarea
-            id="qInput"
-            rows="3"
-            placeholder="输入你的问题，例如：如何配置分块大小？"
-          ></textarea>
-          <div class="query-actions">
-            <button id="qSend" class="btn primary">提问</button>
-            <button id="qClear" class="btn ghost">清空</button>
-            <label class="adv-toggle"
-              ><input type="checkbox" id="advToggle" /> 高级选项</label
-            >
-          </div>
-          <div class="advanced" id="advBox" hidden>
-            <div class="field">
-              <label>集合（留空=全部，逗号分隔）</label>
-              <input id="qCollections" placeholder="exam, docs" />
+        <div class="qa-layout">
+          <aside class="contract-panel" id="contractPanel" hidden>
+            <div class="contract-panel-head">
+              <h3>合同原文</h3>
+              <button id="contractClose" class="btn ghost small" type="button" title="收起原文面板">×</button>
             </div>
-            <div class="row">
-              <div class="field">
-                <label>返回条数 limit</label>
-                <input type="number" id="qLimit" value="10" min="1" />
-              </div>
-              <div class="field">
-                <label>引用条数 topK</label>
-                <input type="number" id="qTopK" value="10" min="1" />
-              </div>
-              <div class="field">
-                <label>最低分 minScore</label>
-                <input type="number" id="qMinScore" value="0" step="0.01" />
-              </div>
-              <div class="field">
-                <label>候选池 candidateLimit</label>
-                <input type="number" id="qCandidateLimit" placeholder="默认=limit" min="1" />
-              </div>
-              <div class="field">
-                <label>意图 intent（可选）</label>
-                <input id="qIntent" placeholder="howto / 概念 / 排查" />
-              </div>
-            </div>
-          </div>
-        </div>
+            <div class="contract-text" id="contractText"></div>
+          </aside>
+          <aside class="index-panel">
+            <button id="uploadOpenBtn" class="btn primary index-upload" type="button">上传合同</button>
 
-        <div id="qLoading" class="loading" hidden>
-          <span class="spinner"></span>
-          <div class="loading-body">
-            <div id="loadingStages" class="stages">
-              <span class="stage" data-stage="expand">扩展模型</span>
-              <span class="arrow">→</span>
-              <span class="stage" data-stage="embed">嵌入模型</span>
-              <span class="arrow">→</span>
-              <span class="stage" data-stage="rerank">重排</span>
-              <span class="arrow">→</span>
-              <span class="stage" data-stage="generate">生成答案</span>
+            <!-- 集合列表（可收起/展开） -->
+            <div class="hist-panel-head" id="idxHead">
+              <h3>集合列表</h3>
+              <button id="idxRefresh" class="btn ghost small" type="button">收起</button>
             </div>
-            <div class="loading-meta">
-              <span id="loadingTimer" class="muted">已等待 0 秒</span>
-              <span id="loadingHint" class="muted"></span>
-            </div>
-            <div id="stageOutput" class="stage-output"></div>
-            <div id="liveAnswer" class="live-answer" hidden></div>
-          </div>
-          <button id="qCancel" class="btn ghost small" hidden>取消</button>
-        </div>
-        <div id="qError" class="error" hidden></div>
+            <div id="idxList" class="idx-list"></div>
 
-        <div id="qEmpty" class="empty-state">
-          <div class="es-emoji">💡</div>
-          <div class="es-title">输入问题，开始检索</div>
-          <div class="es-sub">
-            展开「高级选项」可调整检索集合、返回条数、相似度阈值等
-          </div>
-        </div>
+            <!-- 对话历史：整合进索引展示区，置于「检索模式」上方 -->
+            <div class="hist-panel" id="histPanel">
+              <div class="hist-panel-head">
+                <h3>对话历史</h3>
+                <button id="chatNewBtn" class="btn ghost small" type="button">＋ 新对话</button>
+              </div>
+              <div id="chatSessions" class="chat-sessions"></div>
+            </div>
 
-        <div id="qResult" class="result" hidden>
-          <div class="answer card">
-            <div class="answer-head">
-              <span class="ah-title"
-                >回答 <span id="qModel" class="badge"></span
-              ></span>
-              <button id="qCopy" class="icon-btn" type="button" title="复制回答">复制</button>
+
+          </aside>
+          <div class="qa-main">
+            <div class="qa-scroll">
+              <div id="qLoading" class="loading" hidden>
+                <span class="spinner"></span>
+                <div class="loading-body">
+                  <div id="loadingStages" class="stages">
+                    <span class="stage" data-stage="expand">扩展模型</span>
+                    <span class="arrow">→</span>
+                    <span class="stage" data-stage="embed">嵌入模型</span>
+                    <span class="arrow">→</span>
+                    <span class="stage" data-stage="rerank">重排</span>
+                    <span class="arrow">→</span>
+                    <span class="stage" data-stage="generate">生成答案</span>
+                  </div>
+                  <div class="loading-meta" id="loadingMeta">
+                    <span id="loadingTimer" class="muted">已等待 0 秒</span>
+                    <span id="loadingHint" class="muted"></span>
+                  </div>
+                  <div id="stageOutput" class="stage-output"></div>
+                  <div id="liveAnswer" class="live-answer" hidden></div>
+                </div>
+                <button id="qCancel" class="btn ghost small" hidden>取消</button>
+              </div>
+              <div id="qError" class="error" hidden></div>
+
+              <div id="qResult" class="result" hidden>
+                <div class="qa-result">
+                  <!-- 回答与折叠区：左侧主区域（折叠区直接位于回答下方） -->
+                  <div class="qa-result-ans">
+                    <div class="answer card">
+                      <div class="answer-head">
+                        <span class="ah-title">回答</span>
+                      </div>
+                      <div class="answer-body" id="qAnswer"></div>
+                    </div>
+
+                    <!-- 折叠区：参考来源、操作、元数据统一收起，置于回答下方 -->
+                    <div class="qa-extra" id="qaExtra">
+                      <button type="button" class="qa-extra-toggle" id="qaExtraToggle" aria-expanded="false">
+                        <span class="qa-extra-toggle-label">展开详情（参考来源 · 操作 · 元数据）</span>
+                        <span class="qa-extra-toggle-ico">▾</span>
+                      </button>
+                      <div class="qa-extra-body" id="qaExtraBody" hidden>
+                        <div class="qa-extra-meta" id="qMeta"></div>
+                        <div class="qa-extra-actions">
+                          <button id="qCopy" class="icon-btn" type="button" title="复制回答">复制回答</button>
+                          <span class="qa-wiki-save">
+                            <select id="qaWikiColl" title="选择要写入的 wiki 集合"></select>
+                            <button id="qaWikiSave" class="icon-btn" type="button" title="把本次问答沉淀为 wiki 页，并记录所引用文档的血缘关系">存为 Wiki 页</button>
+                          </span>
+                        </div>
+                        <div class="sources">
+                          <div class="sources-head">参考来源（答案引用）</div>
+                          <ol id="qSources"></ol>
+                          <div class="sources-head" style="margin-top: 18px">
+                            全部检索结果
+                            <button id="qExpandAll" style="margin-left:8px;font-size:11px;cursor:pointer;padding:1px 7px;">展开全部</button>
+                          </div>
+                          <ol id="qRaw"></ol>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 问题：右侧 -->
+                  <div class="qa-result-q">
+                    <div class="question card">
+                      <div class="question-head">你的问题</div>
+                      <div class="question-body" id="qQuestion"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 历史会话视图：与结果视图(#qResult)互斥显隐，互不销毁，避免渲染历史时破坏 #qAnswer -->
+              <div id="qHistory" class="result" hidden></div>
             </div>
-            <div class="answer-body" id="qAnswer"></div>
-          </div>
-          <div class="sources">
-            <div class="sources-head">参考来源（答案引用）</div>
-            <ol id="qSources"></ol>
-            <div class="sources-head" style="margin-top: 18px">
-              全部检索结果
-              <button id="qExpandAll" style="margin-left:8px;font-size:12px;cursor:pointer;padding:1px 8px;">展开全部</button>
+
+            <div class="qa-composer">
+              <div class="query-box card">
+                <div class="qa-active-hint" id="qaActiveHint" hidden>
+                  <span class="qa-ah-label">当前问答索引</span>
+                  <span class="qa-ah-name" id="qaActiveName"></span>
+                  <button type="button" class="qa-ah-x" id="qaActiveClear" title="清除当前问答索引" aria-label="清除">✕</button>
+                </div>
+                <!-- 同时选中 wiki 知识库 + raw 文档集（混合模式）时，提供快捷提问 -->
+                <div class="qa-quick" id="qaQuick" hidden>
+                  <span class="qa-quick-label">快捷提问</span>
+                  <button type="button" class="qa-quick-item" id="qaQuickReview" title="点击填入输入框，再按发送即开始风险审查">帮我审查一下这个合同。</button>
+                </div>
+                <textarea
+                  id="qInput"
+                  rows="2"
+                  placeholder="输入问题，或输入「帮我审查一下这份合同」自动触发风险审查"
+                ></textarea>
+                <button id="qSend" class="qa-submit" type="button" title="提交问题" aria-label="提交问题">➤</button>
+              </div>
+              <span class="composer-intent-hint" id="reviewIntentHint" hidden>✓ 已识别为「风险审查」意图，按发送即开始审查该集合内合同</span>
             </div>
-            <ol id="qRaw"></ol>
           </div>
-        </div>
       </section>
 
       <!-- ===== 配置 ===== -->
@@ -144,84 +213,284 @@
           <button id="cfgSave" class="btn primary">保存更改</button>
           <button id="cfgReset" class="btn ghost">恢复默认</button>
           <span id="cfgMsg" class="msg"></span>
+          <!-- 「返回问答」移到最右侧，样式与规则整理页保持一致 -->
+          <button id="cfgBack" class="btn ghost small" type="button">返回问答</button>
         </div>
         <form id="configForm" class="config-form"></form>
         <div id="modelWarmStatus" class="msg" hidden></div>
       </section>
 
-      <!-- ===== 索引 ===== -->
-      <section id="tab-index" class="panel">
-        <div class="card">
-          <h3>重建向量索引</h3>
-          <p class="muted">
-            对指定集合（或全库）重新生成 embedding。首次使用或新增文档后需要执行。
-            首次会在本地下载/加载嵌入模型，耗时较久。
-          </p>
-          <div class="field">
-            <label>集合（留空=全部，逗号分隔）</label>
-            <input id="eCollections" placeholder="exam" />
-          </div>
-          <label class="check"
-            ><input type="checkbox" id="eForce" /> 强制重建（覆盖已存在的
-            embedding）</label
-          >
-          <div style="margin-top: 12px">
-            <button id="eBtn" class="btn primary">开始重建</button>
-          </div>
-          <div id="eResult" class="msg" hidden></div>
-        </div>
+      <!-- ===== 规则整理：合同类型 ↔ 风险规则 关联维护 ===== -->
+      <section id="tab-rules" class="panel">
+        <div class="rules-layout">
+          <aside class="rules-side">
+            <div class="rules-side-head">
+              <h3>合同类型</h3>
+            </div>
+            <div id="ruleContractTree" class="rule-tree"></div>
+          </aside>
 
-        <div class="card" style="margin-top: 16px">
-          <h3>上传文档建索引</h3>
-          <p class="muted">
-            上传文档到指定集合并自动建立向量索引。集合不存在时将自动创建（存储于 qmd 配置目录的
-            uploads/ 下）。首次会在本地下载/加载嵌入模型，耗时较久。
-          </p>
-          <div class="field">
-            <label>集合名称（不存在将自动创建）</label>
-            <input id="uCollection" list="uCollList" placeholder="exam" />
-            <datalist id="uCollList"></datalist>
+          <div class="rules-main">
+            <div class="rules-toolbar">
+              <div class="rules-views">
+                <button id="rvLibrary" class="btn ghost small rv-btn" type="button">规则库</button>
+              </div>
+              <input id="ruleSearch" type="text" placeholder="搜索规则（ID / 名称 / 分类）" />
+              <span id="ruleScopeState" class="muted"></span>
+              <!-- 「返回问答」移到工具栏最右侧 -->
+              <button id="rulesBack" class="btn ghost small" type="button">返回问答</button>
+            </div>
+            <div id="rulePanel" class="rule-panel"></div>
           </div>
-          <div class="field">
-            <label>选择文档（支持 .md/.txt/.pdf/.docx/.pptx 等）</label>
-            <input id="uFile" type="file" accept=".md,.markdown,.txt,.pdf,.docx,.doc,.pptx,.ppt" />
+        </div>
+      </section>
+
+      <!-- ===== 信息收集（迭代式提问，保留完整上下文） ===== -->
+      <section id="tab-intake" class="panel">
+        <div class="intake-layout">
+          <aside class="intake-side">
+            <h3>采集会话</h3>
+            <button id="intakeRefresh" class="btn ghost small" type="button">刷新</button>
+            <div id="intakeSessions" class="intake-sessions"></div>
+          </aside>
+
+          <div class="intake-main">
+            <!-- 目标设定 -->
+            <div id="intakeSetup" class="intake-setup card">
+              <label for="intakeGoal" class="intake-label">采集目标 / 主题</label>
+              <textarea id="intakeGoal" rows="3" class="intake-textarea"
+                placeholder="例如：收集一份新功能的需求说明，包括目标用户、核心场景与约束条件。"></textarea>
+              <button id="intakeStart" class="btn primary" type="button">开始采集</button>
+            </div>
+
+            <!-- 进行中的会话 -->
+            <div id="intakeActive" class="intake-active" hidden>
+              <div class="intake-goal-bar">
+                <div>
+                  <span class="muted">采集目标：</span>
+                  <span id="intakeGoalText" class="intake-goal-text"></span>
+                </div>
+                <button id="intakeFinish" class="btn ghost small" type="button">结束并生成摘要</button>
+              </div>
+
+              <div id="intakeTranscript" class="intake-transcript"></div>
+
+              <div id="intakeDone" class="intake-done" hidden>
+                <div class="intake-done-title">✅ 信息收集已完成</div>
+                <pre id="intakeSummary" class="intake-summary"></pre>
+                <div class="qa-extra-actions">
+                  <button id="intakeSummaryCopy" class="btn ghost small" type="button">复制摘要</button>
+                  <span class="qa-wiki-save">
+                    <select id="intakeWikiColl" title="选择要写入的 wiki 集合"></select>
+                    <button id="intakeWikiSave" class="btn ghost small" type="button"
+                      title="把本次采集摘要沉淀为 wiki 页，并入知识库（自动建索引，立即可检索）">存为 Wiki 页</button>
+                  </span>
+                </div>
+              </div>
+
+              <div id="intakeComposer" class="intake-composer">
+                <textarea id="intakeAnswer" rows="2" class="intake-textarea"
+                  placeholder="输入你对当前问题的回答…"></textarea>
+                <button id="intakeSend" class="btn primary" type="button">提交回答</button>
+              </div>
+            </div>
           </div>
-          <label class="check"
-            ><input type="checkbox" id="uAuto" checked /> 上传后自动建立索引</label
-          >
-          <div style="margin-top: 12px">
-            <button id="uBtn" class="btn primary">上传并建索引</button>
-          </div>
-          <div id="uResult" class="msg" hidden></div>
-          <div id="uProgress" class="muted" hidden></div>
         </div>
       </section>
     </main>
-
-    <footer class="footer">
-      QMD 文档检索 · RAG 前端 · 所有数据均在本地处理
-    </footer>
+        <!-- <footer class="footer">
+          QMD 文档检索 · RAG 前端 · 所有数据均在本地处理
+        </footer> -->
+      </div>
+    </div>
 
     <!-- ===== 登录遮罩 ===== -->
     <div id="loginOverlay" class="login-overlay" hidden>
       <div class="login-card card">
+        <button id="loginClose" class="login-close" type="button" aria-label="关闭登录框">×</button>
         <h2>🔐 登录 QMD</h2>
         <p class="muted">使用用户名与密码登录（也可在「配置」中粘贴 CLI 生成的 token）。</p>
-        <div class="field">
-          <label>用户名</label>
-          <input id="loginUser" type="text" placeholder="username" autocomplete="username" />
-        </div>
-        <div class="field">
-          <label>密码</label>
-          <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" />
-        </div>
-        <button id="loginBtn" class="btn primary" style="width: 100%">登录</button>
-        <div id="loginErr" class="error" hidden></div>
+        <form id="loginForm" autocomplete="on">
+          <div class="field">
+            <label>用户名</label>
+            <input id="loginUser" type="text" placeholder="username" autocomplete="username" />
+          </div>
+          <div class="field">
+            <label>密码</label>
+            <input id="loginPass" type="password" placeholder="••••••••" autocomplete="current-password" />
+          </div>
+          <button id="loginBtn" type="submit" class="btn primary" style="width: 100%">登录</button>
+          <div id="loginErr" class="error" hidden></div>
+        </form>
       </div>
     </div>
 
     <div class="toast-wrap" id="toastWrap"></div>
 
-    <script src="/app.js" type="module"></script>
+    <script src="/app.js?v=20260923bc" type="module"></script>
+    <div id="docModal" class="modal" hidden>
+      <div class="modal-box">
+        <div class="modal-head">
+          <span id="docModalTitle"></span>
+          <button id="docModalClose" class="btn ghost small" type="button">关闭</button>
+        </div>
+        <pre id="docModalBody" class="doc-body"></pre>
+      </div>
+    </div>
+
+    <!-- ===== 上传文档弹窗 ===== -->
+    <div id="uploadModal" class="modal" hidden>
+      <div class="modal-box" style="width: min(940px, 96vw)">
+        <div class="modal-head">
+          <span id="uploadModalTitle">上传合同</span>
+          <button id="uploadModalClose" class="btn ghost small" type="button">关闭</button>
+        </div>
+        <div class="modal-body">
+          <!-- 集合配置：与「索引配置」共用 .cfg-block / .cfg-title，视觉完全一致 -->
+          <div class="cfg-block">
+            <div class="cfg-title">集合配置</div>
+            <div class="qmd-field-row">
+              <div class="field">
+                <label>选择文档（可多选，支持 .md/.txt/.pdf/.docx/.pptx/.xlsx 等）</label>
+                <input id="uFile" type="file" accept=".md,.markdown,.txt,.pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls" multiple />
+              </div>
+              <div class="field">
+                <label>集合名称（不存在将自动创建）</label>
+                <input id="uCollection" list="uCollList" placeholder="仅支持字母、数字、- 和 _" />
+                <datalist id="uCollList"></datalist>
+              </div>
+            </div>
+            <label class="check"><input type="checkbox" id="uAuto" checked /> 上传后自动建立索引</label>
+            <div class="type-block">
+              <span class="type-label">集合类型</span>
+              <div class="type-select">
+                <label class="type-opt">
+                  <input type="radio" name="uIndexType" value="raw" checked />
+                  <span class="type-opt-inner">
+                    <span class="type-opt-head">
+                      <span class="type-opt-dot"></span>
+                      <span class="type-opt-title">基础文档</span>
+                    </span>
+                    <span class="type-opt-desc">原始不可变源，上传即入库</span>
+                  </span>
+                </label>
+                <label class="type-opt">
+                  <input type="radio" name="uIndexType" value="wiki" />
+                  <span class="type-opt-inner">
+                    <span class="type-opt-head">
+                      <span class="type-opt-dot"></span>
+                      <span class="type-opt-title">wiki</span>
+                    </span>
+                    <span class="type-opt-desc">可由 doc_write 持续加工整理</span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <hr class="divider" />
+          <div class="cfg-block">
+            <div class="cfg-title">索引配置</div>
+            <div class="chunk-row">
+              <div class="field">
+                <label>嵌入模型（embedModel）</label>
+                <input id="uEmbedModel" type="text" value="embeddinggemma-300M-Q8_0" readonly />
+              </div>
+              <div class="field">
+                <label>分块大小 (tokens)</label>
+                <input id="uChunkSize" type="number" min="100" step="50" value="900" />
+              </div>
+              <div class="field">
+                <label>重叠比例</label>
+                <input id="uChunkOverlap" type="number" min="0" max="0.9" step="0.05" value="0.15" />
+              </div>
+              <div class="field">
+                <label>断点窗口 (tokens)</label>
+                <input id="uChunkWindow" type="number" min="1" step="1" value="200" />
+              </div>
+            </div>
+            <span class="hint">分块大小决定切片粒度；重叠 0.15(≈135 tokens)、断点窗口 200 在边界处切分，减少信息丢失</span>
+          </div>
+
+            <div class="adv-config">
+              <div class="adv-config-head">规则配置</div>
+              <div class="adv-config-body">
+                <div class="type-block" id="uploadContractType">
+                  <span class="type-label">合同类型决定风险审查时套用的规则集</span>
+                  <div class="type-select">
+                    <label class="type-opt">
+                      <input type="radio" name="uContractType" value="general" checked />
+                      <span class="type-opt-inner">
+                        <span class="type-opt-head">
+                          <span class="type-opt-dot"></span>
+                          <span class="type-opt-title">总包合同</span>
+                        </span>
+                        <span class="type-opt-desc">以总承包方身份签订</span>
+                      </span>
+                    </label>
+                    <label class="type-opt">
+                      <input type="radio" name="uContractType" value="subcontract" />
+                      <span class="type-opt-inner">
+                        <span class="type-opt-head">
+                          <span class="type-opt-dot"></span>
+                          <span class="type-opt-title">分包分供合同</span>
+                        </span>
+                        <span class="type-opt-desc">分包、分供与采购类</span>
+                      </span>
+                    </label>
+                    <label class="type-opt">
+                      <input type="radio" name="uContractType" value="other" />
+                      <span class="type-opt-inner">
+                        <span class="type-opt-head">
+                          <span class="type-opt-dot"></span>
+                          <span class="type-opt-title">其他类合同</span>
+                        </span>
+                        <span class="type-opt-desc" id="uOtherTypeDesc">选择后需明确具体类别</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- 「其他类合同」：选中后直接出现下拉选择框，在框内明确具体类别 -->
+                <div class="other-type-inline" id="uploadOtherType" hidden>
+                  <div class="oti-head">
+                    <span class="oti-title">请明确「其他类合同」的具体类别（必选）</span>
+                    <select id="uploadOtherTypeSelect" class="oti-select" aria-label="其他类合同的具体类别">
+                      <option value="">请选择具体类别…</option>
+                    </select>
+                  </div>
+                  <div class="oti-foot">
+                    <span class="muted">已选：<b id="uploadOtherTypeCurrent">尚未选择</b></span>
+                    <span id="uploadOtherTypeError" class="msg err" hidden></span>
+                  </div>
+                </div>
+
+                <hr class="adv-subsep" />
+                <p class="hint">以下为合同特殊情形，按需勾选，不影响上传；勾选后将在风险审查时自动套用对应专项检查。</p>
+                <div class="tag-group" id="uploadTags">
+                  <span class="tag-group-label">特殊情形</span>
+                  <label title="联合体模式项目"><input type="checkbox" value="联合体" /> 联合体</label>
+                  <label title="充电桩 / 光伏 / 能源托管等能源类"><input type="checkbox" value="能源" /> 能源类</label>
+                  <label title="学校 / 医院类项目"><input type="checkbox" value="学校医院" /> 学校/医院</label>
+                  <label title="15 年以上长周期项目"><input type="checkbox" value="长周期" /> 长周期</label>
+                </div>
+              </div>
+            </div>
+
+            <div id="uWarn" class="msg warn" hidden style="border-left:3px solid #e0a800; background:#fff8e6; padding:10px; border-radius:6px;">
+            <p id="uWarnText" style="margin:0 0 8px"></p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="uWarnJoin" class="btn ghost small" type="button">仍要加入（合并检索）</button>
+              <button id="uWarnNew" class="btn primary small" type="button">新建独立集合后上传</button>
+            </div>
+          </div>
+          <div id="uResult" class="msg" hidden></div>
+          <div id="uProgress" class="muted" hidden></div>
+        </div>
+        <div class="modal-foot">
+          <button id="uBtn" class="btn primary" style="width: 100%">上传并建索引</button>
+        </div>
+      </div>
+    </div>
+
   </body>
 </html>
